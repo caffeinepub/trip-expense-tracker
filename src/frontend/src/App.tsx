@@ -32,6 +32,7 @@ import {
   Plus,
   Receipt,
   RotateCcw,
+  Share2,
   TrendingUp,
   User,
   Wallet,
@@ -1282,6 +1283,30 @@ export default function App() {
     toast.success("All expenses cleared. Starting fresh!");
   }
 
+  async function handleShare() {
+    const shareData = {
+      title: "Trip Expense Tracker",
+      text: "Track and split trip expenses among friends easily!",
+      url: window.location.href,
+    };
+
+    if (navigator.share) {
+      try {
+        await navigator.share(shareData);
+      } catch {
+        // User cancelled share
+      }
+    } else {
+      // Fallback: copy to clipboard
+      try {
+        await navigator.clipboard.writeText(window.location.href);
+        toast.success("App link copied to clipboard!");
+      } catch {
+        toast.error("Could not share. Copy the URL from your browser.");
+      }
+    }
+  }
+
   return (
     <div className="min-h-screen bg-background flex flex-col">
       <Toaster position="top-right" />
@@ -1323,6 +1348,15 @@ export default function App() {
                   ))}
                 </SelectContent>
               </Select>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-8 w-8 p-0 text-white hover:bg-white/10 hover:text-white"
+                onClick={handleShare}
+                title="Share app"
+              >
+                <Share2 className="h-4 w-4" />
+              </Button>
               <div className="hidden sm:flex items-center gap-1">
                 {MEMBERS.map((m) => (
                   <MemberAvatar key={m} member={m} size="sm" />
