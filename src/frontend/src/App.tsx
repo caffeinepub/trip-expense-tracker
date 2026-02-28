@@ -25,13 +25,13 @@ import {
   Calendar,
   CheckCircle2,
   FileText,
-  IndianRupee,
   LayoutDashboard,
   ListOrdered,
   MapPin,
   Mountain,
   Plus,
   Receipt,
+  RotateCcw,
   TrendingUp,
   User,
   Wallet,
@@ -54,60 +54,41 @@ interface Expense {
   paidBy: Member;
 }
 
-// ── Sample Data ────────────────────────────────────────────────────────────────
+// ── Currency ───────────────────────────────────────────────────────────────────
 
-const SAMPLE_EXPENSES: Expense[] = [
-  {
-    id: "1",
-    date: "2026-02-20",
-    description: "Hotel stay",
-    location: "Manali",
-    amount: 8000,
-    paidBy: "Manoj",
-  },
-  {
-    id: "2",
-    date: "2026-02-21",
-    description: "Lunch at dhaba",
-    location: "Solang Valley",
-    amount: 1200,
-    paidBy: "Ramesh",
-  },
-  {
-    id: "3",
-    date: "2026-02-21",
-    description: "Ski equipment rental",
-    location: "Solang Valley",
-    amount: 3600,
-    paidBy: "Abhijit",
-  },
-  {
-    id: "4",
-    date: "2026-02-22",
-    description: "Dinner & bonfire",
-    location: "Manali",
-    amount: 2400,
-    paidBy: "Pradeep",
-  },
-  {
-    id: "5",
-    date: "2026-02-22",
-    description: "Taxi to Rohtang Pass",
-    location: "Rohtang Pass",
-    amount: 2000,
-    paidBy: "Manoj",
-  },
+type Currency = "INR" | "THB" | "VND";
+
+const CURRENCIES: { value: Currency; label: string; symbol: string }[] = [
+  { value: "INR", label: "Indian Rupee (₹)", symbol: "₹" },
+  { value: "THB", label: "Thai Baht (฿)", symbol: "฿" },
+  { value: "VND", label: "Vietnam Dong (₫)", symbol: "₫" },
 ];
+
+// Approximate conversion rates from INR
+const EXCHANGE_RATES: Record<Currency, number> = {
+  INR: 1,
+  THB: 0.44,
+  VND: 52,
+};
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
 
-function formatINR(amount: number): string {
-  return new Intl.NumberFormat("en-IN", {
-    style: "currency",
-    currency: "INR",
-    minimumFractionDigits: 0,
-    maximumFractionDigits: 0,
-  }).format(Math.abs(amount));
+function formatCurrency(amount: number, currency: Currency): string {
+  const converted = Math.abs(amount) * EXCHANGE_RATES[currency];
+  const info = CURRENCIES.find((c) => c.value === currency)!;
+  if (currency === "INR") {
+    return new Intl.NumberFormat("en-IN", {
+      style: "currency",
+      currency: "INR",
+      minimumFractionDigits: 0,
+      maximumFractionDigits: 0,
+    }).format(converted);
+  }
+  if (currency === "VND") {
+    return `${info.symbol}${new Intl.NumberFormat("en-US", { maximumFractionDigits: 0 }).format(Math.round(converted))}`;
+  }
+  // THB
+  return `${info.symbol}${new Intl.NumberFormat("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(converted)}`;
 }
 
 function formatDateDisplay(dateStr: string): string {
@@ -248,7 +229,17 @@ function MemberAvatar({
 
 // ── Dashboard Tab ──────────────────────────────────────────────────────────────
 
-function DashboardTab({ expenses }: { expenses: Expense[] }) {
+function DashboardTab({
+  expenses,
+  currency,
+  onReset,
+}: {
+  expenses: Expense[];
+  currency: Currency;
+  onReset: () => void;
+}) {
+  const [showResetConfirm, setShowResetConfirm] = useState(false);
+
   const totalSpend = expenses.reduce((sum, e) => sum + e.amount, 0);
   const perPerson = totalSpend / MEMBERS.length;
   const balances = computeBalances(expenses);
@@ -291,21 +282,19 @@ function DashboardTab({ expenses }: { expenses: Expense[] }) {
                 </span>
               </div>
               <h1 className="font-display text-2xl font-bold tracking-tight">
-                Manali Trip 2026
+                TRIP
               </h1>
-              <p className="text-sm opacity-60 mt-1 font-body">
-                Feb 20–22 · 4 members
-              </p>
+              <p className="text-sm opacity-60 mt-1 font-body">4 members</p>
             </div>
             <div className="text-right">
               <p className="text-xs font-body opacity-60 uppercase tracking-wide mb-1">
                 Total Spend
               </p>
               <p className="font-display text-3xl font-bold amount-neutral text-white">
-                {formatINR(totalSpend)}
+                {formatCurrency(totalSpend, currency)}
               </p>
               <p className="text-xs opacity-60 mt-1">
-                {formatINR(perPerson)} per person
+                {formatCurrency(perPerson, currency)} per person
               </p>
             </div>
           </div>
@@ -314,10 +303,11 @@ function DashboardTab({ expenses }: { expenses: Expense[] }) {
               <div key={m} className="text-center">
                 <p className="text-xs opacity-50 mb-1">{m}</p>
                 <p className="font-display font-semibold text-sm">
-                  {formatINR(
+                  {formatCurrency(
                     expenses
                       .filter((e) => e.paidBy === m)
                       .reduce((s, e) => s + e.amount, 0),
+                    currency,
                   )}
                 </p>
               </div>
@@ -339,8 +329,8 @@ function DashboardTab({ expenses }: { expenses: Expense[] }) {
           },
           {
             label: "Per Person",
-            value: formatINR(perPerson),
-            icon: <IndianRupee className="h-4 w-4" />,
+            value: formatCurrency(perPerson, currency),
+            icon: <TrendingUp className="h-4 w-4" />,
           },
           {
             label: "Settlements",
@@ -349,7 +339,7 @@ function DashboardTab({ expenses }: { expenses: Expense[] }) {
           },
           {
             label: "Total Spend",
-            value: formatINR(totalSpend),
+            value: formatCurrency(totalSpend, currency),
             icon: <TrendingUp className="h-4 w-4" />,
           },
         ].map((stat) => (
@@ -393,7 +383,7 @@ function DashboardTab({ expenses }: { expenses: Expense[] }) {
                     className={`font-display font-bold text-xl ${isPositive ? "amount-positive" : "amount-negative"}`}
                   >
                     {isPositive ? "+" : "-"}
-                    {formatINR(bal)}
+                    {formatCurrency(bal, currency)}
                   </p>
                   <p
                     className={`text-xs mt-1 font-body ${isPositive ? "text-success" : "text-destructive"}`}
@@ -445,7 +435,7 @@ function DashboardTab({ expenses }: { expenses: Expense[] }) {
                 <div className="flex items-center gap-3">
                   <ArrowRight className="h-4 w-4 text-teal" />
                   <span className="font-display font-bold amount-neutral text-foreground">
-                    {formatINR(s.amount)}
+                    {formatCurrency(s.amount, currency)}
                   </span>
                   <ArrowRight className="h-4 w-4 text-teal" />
                 </div>
@@ -460,6 +450,45 @@ function DashboardTab({ expenses }: { expenses: Expense[] }) {
           </div>
         )}
       </motion.div>
+
+      {/* Reset / New Settlement */}
+      <motion.div variants={itemVariants}>
+        <div className="pt-2">
+          {!showResetConfirm ? (
+            <Button
+              variant="outline"
+              className="w-full border-destructive text-destructive hover:bg-destructive hover:text-white font-body"
+              onClick={() => setShowResetConfirm(true)}
+            >
+              <RotateCcw className="h-4 w-4 mr-2" />
+              Reset / New Settlement
+            </Button>
+          ) : (
+            <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-4 space-y-3">
+              <p className="text-sm font-body text-foreground text-center">
+                This will delete all <strong>{expenses.length}</strong>{" "}
+                expense(s) and start fresh. Are you sure?
+              </p>
+              <div className="flex gap-2">
+                <Button
+                  variant="outline"
+                  className="flex-1 font-body"
+                  onClick={() => setShowResetConfirm(false)}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  variant="destructive"
+                  className="flex-1 font-body"
+                  onClick={onReset}
+                >
+                  Yes, Reset
+                </Button>
+              </div>
+            </div>
+          )}
+        </div>
+      </motion.div>
     </motion.div>
   );
 }
@@ -468,10 +497,13 @@ function DashboardTab({ expenses }: { expenses: Expense[] }) {
 
 function AddExpenseTab({
   onAdd,
+  currency,
 }: {
   onAdd: (expense: Expense) => void;
+  currency: Currency;
 }) {
   const today = new Date().toISOString().split("T")[0];
+  const currencyInfo = CURRENCIES.find((c) => c.value === currency)!;
 
   const [description, setDescription] = useState("");
   const [location, setLocation] = useState("");
@@ -509,7 +541,7 @@ function AddExpenseTab({
     });
 
     toast.success("Expense added successfully!", {
-      description: `${description} — ${formatINR(parsedAmount)} split among 4 members`,
+      description: `${description} — ${formatCurrency(parsedAmount, currency)} split among 4 members`,
     });
 
     setDescription("");
@@ -579,7 +611,7 @@ function AddExpenseTab({
                 </Label>
                 <Input
                   id="location"
-                  placeholder="e.g. Manali, Solang Valley"
+                  placeholder="e.g. Bangkok, Ho Chi Minh City"
                   value={location}
                   onChange={(e) => setLocation(e.target.value)}
                   className={`font-body ${errors.location ? "border-destructive" : ""}`}
@@ -598,12 +630,11 @@ function AddExpenseTab({
                     htmlFor="amount"
                     className="font-body text-sm font-medium flex items-center gap-1.5"
                   >
-                    <IndianRupee className="h-3.5 w-3.5 text-muted-foreground" />
-                    Amount (₹)
+                    Amount ({currencyInfo.symbol})
                   </Label>
                   <div className="relative">
                     <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground font-mono text-sm">
-                      ₹
+                      {currencyInfo.symbol}
                     </span>
                     <Input
                       id="amount"
@@ -690,7 +721,7 @@ function AddExpenseTab({
                   >
                     <div className="rounded-lg bg-teal-light border border-teal/20 p-4">
                       <p className="text-xs font-body font-medium text-accent-foreground mb-2 flex items-center gap-1.5">
-                        <IndianRupee className="h-3.5 w-3.5" />
+                        <Receipt className="h-3.5 w-3.5" />
                         Split Preview
                       </p>
                       <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
@@ -701,7 +732,7 @@ function AddExpenseTab({
                               {m}
                             </p>
                             <p className="font-display font-bold text-sm text-accent-foreground amount-neutral">
-                              {formatINR(perPerson)}
+                              {formatCurrency(perPerson, currency)}
                             </p>
                           </div>
                         ))}
@@ -710,11 +741,11 @@ function AddExpenseTab({
                       <p className="text-xs text-center font-body text-accent-foreground">
                         Each member pays{" "}
                         <span className="font-bold">
-                          {formatINR(perPerson)}
+                          {formatCurrency(perPerson, currency)}
                         </span>{" "}
                         of the total{" "}
                         <span className="font-bold">
-                          {formatINR(parsedAmount)}
+                          {formatCurrency(parsedAmount, currency)}
                         </span>
                       </p>
                     </div>
@@ -739,7 +770,13 @@ function AddExpenseTab({
 
 // ── Expense List Tab ───────────────────────────────────────────────────────────
 
-function ExpenseListTab({ expenses }: { expenses: Expense[] }) {
+function ExpenseListTab({
+  expenses,
+  currency,
+}: {
+  expenses: Expense[];
+  currency: Currency;
+}) {
   const sorted = [...expenses].sort(
     (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime(),
   );
@@ -767,89 +804,101 @@ function ExpenseListTab({ expenses }: { expenses: Expense[] }) {
             </div>
           </CardHeader>
           <CardContent className="p-0 mt-3">
-            <Table>
-              <TableHeader>
-                <TableRow className="bg-muted/50 hover:bg-muted/50">
-                  <TableHead className="font-display font-semibold text-xs uppercase tracking-wider text-muted-foreground pl-5">
-                    Date
-                  </TableHead>
-                  <TableHead className="font-display font-semibold text-xs uppercase tracking-wider text-muted-foreground">
-                    Description
-                  </TableHead>
-                  <TableHead className="font-display font-semibold text-xs uppercase tracking-wider text-muted-foreground">
-                    Location
-                  </TableHead>
-                  <TableHead className="font-display font-semibold text-xs uppercase tracking-wider text-muted-foreground text-right">
-                    Amount
-                  </TableHead>
-                  <TableHead className="font-display font-semibold text-xs uppercase tracking-wider text-muted-foreground">
-                    Paid By
-                  </TableHead>
-                  <TableHead className="font-display font-semibold text-xs uppercase tracking-wider text-muted-foreground text-right pr-5">
-                    Per Person
-                  </TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {sorted.map((expense, i) => (
-                  <TableRow
-                    key={expense.id}
-                    className={`ledger-row transition-colors ${i % 2 === 1 ? "bg-muted/30" : ""}`}
-                  >
-                    <TableCell className="pl-5 font-body text-sm text-muted-foreground whitespace-nowrap">
-                      {formatDateDisplay(expense.date)}
-                    </TableCell>
-                    <TableCell className="font-body text-sm font-medium text-foreground">
-                      {expense.description}
-                    </TableCell>
-                    <TableCell>
-                      <span className="inline-flex items-center gap-1 text-xs font-body text-muted-foreground">
-                        <MapPin className="h-3 w-3" />
-                        {expense.location}
-                      </span>
+            {expenses.length === 0 ? (
+              <div className="p-10 text-center">
+                <Receipt className="h-10 w-10 text-muted-foreground mx-auto mb-3 opacity-40" />
+                <p className="font-display font-semibold text-foreground">
+                  No expenses yet
+                </p>
+                <p className="text-sm text-muted-foreground font-body mt-1">
+                  Add your first expense to get started.
+                </p>
+              </div>
+            ) : (
+              <Table>
+                <TableHeader>
+                  <TableRow className="bg-muted/50 hover:bg-muted/50">
+                    <TableHead className="font-display font-semibold text-xs uppercase tracking-wider text-muted-foreground pl-5">
+                      Date
+                    </TableHead>
+                    <TableHead className="font-display font-semibold text-xs uppercase tracking-wider text-muted-foreground">
+                      Description
+                    </TableHead>
+                    <TableHead className="font-display font-semibold text-xs uppercase tracking-wider text-muted-foreground">
+                      Location
+                    </TableHead>
+                    <TableHead className="font-display font-semibold text-xs uppercase tracking-wider text-muted-foreground text-right">
+                      Amount
+                    </TableHead>
+                    <TableHead className="font-display font-semibold text-xs uppercase tracking-wider text-muted-foreground">
+                      Paid By
+                    </TableHead>
+                    <TableHead className="font-display font-semibold text-xs uppercase tracking-wider text-muted-foreground text-right pr-5">
+                      Per Person
+                    </TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {sorted.map((expense, i) => (
+                    <TableRow
+                      key={expense.id}
+                      className={`ledger-row transition-colors ${i % 2 === 1 ? "bg-muted/30" : ""}`}
+                    >
+                      <TableCell className="pl-5 font-body text-sm text-muted-foreground whitespace-nowrap">
+                        {formatDateDisplay(expense.date)}
+                      </TableCell>
+                      <TableCell className="font-body text-sm font-medium text-foreground">
+                        {expense.description}
+                      </TableCell>
+                      <TableCell>
+                        <span className="inline-flex items-center gap-1 text-xs font-body text-muted-foreground">
+                          <MapPin className="h-3 w-3" />
+                          {expense.location}
+                        </span>
+                      </TableCell>
+                      <TableCell className="text-right">
+                        <span className="amount-neutral font-semibold text-sm text-foreground">
+                          {formatCurrency(expense.amount, currency)}
+                        </span>
+                      </TableCell>
+                      <TableCell>
+                        <div className="flex items-center gap-2">
+                          <MemberAvatar member={expense.paidBy} />
+                          <span className="font-body text-sm text-foreground">
+                            {expense.paidBy}
+                          </span>
+                        </div>
+                      </TableCell>
+                      <TableCell className="text-right pr-5">
+                        <span className="amount-neutral text-sm text-muted-foreground">
+                          {formatCurrency(expense.amount / 4, currency)}
+                        </span>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                  {/* Total Row */}
+                  <TableRow className="bg-navy/5 border-t-2 border-navy/20">
+                    <TableCell
+                      colSpan={3}
+                      className="pl-5 font-display font-bold text-sm text-foreground"
+                    >
+                      Total ({expenses.length} expenses)
                     </TableCell>
                     <TableCell className="text-right">
-                      <span className="amount-neutral font-semibold text-sm text-foreground">
-                        {formatINR(expense.amount)}
+                      <span className="amount-neutral font-display font-bold text-base text-foreground">
+                        {formatCurrency(total, currency)}
                       </span>
                     </TableCell>
-                    <TableCell>
-                      <div className="flex items-center gap-2">
-                        <MemberAvatar member={expense.paidBy} />
-                        <span className="font-body text-sm text-foreground">
-                          {expense.paidBy}
-                        </span>
-                      </div>
-                    </TableCell>
+                    <TableCell />
                     <TableCell className="text-right pr-5">
-                      <span className="amount-neutral text-sm text-muted-foreground">
-                        {formatINR(expense.amount / 4)}
+                      <span className="amount-neutral font-display font-bold text-sm text-foreground">
+                        {formatCurrency(perPersonTotal, currency)}
                       </span>
                     </TableCell>
                   </TableRow>
-                ))}
-                {/* Total Row */}
-                <TableRow className="bg-navy/5 border-t-2 border-navy/20">
-                  <TableCell
-                    colSpan={3}
-                    className="pl-5 font-display font-bold text-sm text-foreground"
-                  >
-                    Total ({expenses.length} expenses)
-                  </TableCell>
-                  <TableCell className="text-right">
-                    <span className="amount-neutral font-display font-bold text-base text-foreground">
-                      {formatINR(total)}
-                    </span>
-                  </TableCell>
-                  <TableCell />
-                  <TableCell className="text-right pr-5">
-                    <span className="amount-neutral font-display font-bold text-sm text-foreground">
-                      {formatINR(perPersonTotal)}
-                    </span>
-                  </TableCell>
-                </TableRow>
-              </TableBody>
-            </Table>
+                </TableBody>
+              </Table>
+            )}
           </CardContent>
         </Card>
       </div>
@@ -864,68 +913,84 @@ function ExpenseListTab({ expenses }: { expenses: Expense[] }) {
             {expenses.length} entries
           </Badge>
         </div>
-        {sorted.map((expense) => (
-          <Card key={expense.id} className="shadow-card">
-            <CardContent className="p-4">
-              <div className="flex items-start justify-between gap-2 mb-2">
-                <div className="flex-1 min-w-0">
-                  <p className="font-body font-semibold text-sm text-foreground truncate">
-                    {expense.description}
-                  </p>
-                  <div className="flex items-center gap-3 mt-1">
-                    <span className="flex items-center gap-1 text-xs text-muted-foreground font-body">
-                      <MapPin className="h-3 w-3" />
-                      {expense.location}
-                    </span>
-                    <span className="flex items-center gap-1 text-xs text-muted-foreground font-body">
-                      <Calendar className="h-3 w-3" />
-                      {formatDateDisplay(expense.date)}
-                    </span>
-                  </div>
-                </div>
-                <div className="text-right shrink-0">
-                  <p className="amount-neutral font-display font-bold text-base text-foreground">
-                    {formatINR(expense.amount)}
-                  </p>
-                  <p className="text-xs text-muted-foreground font-body mt-0.5">
-                    {formatINR(expense.amount / 4)}/person
-                  </p>
-                </div>
-              </div>
-              <Separator className="my-2" />
-              <div className="flex items-center gap-2">
-                <MemberAvatar member={expense.paidBy} />
-                <span className="text-xs font-body text-muted-foreground">
-                  Paid by{" "}
-                  <span className="font-semibold text-foreground">
-                    {expense.paidBy}
-                  </span>
-                </span>
-              </div>
+        {expenses.length === 0 ? (
+          <Card className="shadow-card">
+            <CardContent className="p-8 text-center">
+              <Receipt className="h-10 w-10 text-muted-foreground mx-auto mb-3 opacity-40" />
+              <p className="font-display font-semibold text-foreground">
+                No expenses yet
+              </p>
+              <p className="text-sm text-muted-foreground font-body mt-1">
+                Add your first expense to get started.
+              </p>
             </CardContent>
           </Card>
-        ))}
-        {/* Mobile Total */}
-        <Card className="shadow-card border-navy/20 bg-navy/5">
-          <CardContent className="p-4 flex items-center justify-between">
-            <div>
-              <p className="font-display font-bold text-sm text-foreground">
-                Total Spend
-              </p>
-              <p className="text-xs text-muted-foreground font-body">
-                {expenses.length} expenses
-              </p>
-            </div>
-            <div className="text-right">
-              <p className="amount-neutral font-display font-bold text-lg text-foreground">
-                {formatINR(total)}
-              </p>
-              <p className="text-xs text-muted-foreground font-body">
-                {formatINR(perPersonTotal)}/person
-              </p>
-            </div>
-          </CardContent>
-        </Card>
+        ) : (
+          <>
+            {sorted.map((expense) => (
+              <Card key={expense.id} className="shadow-card">
+                <CardContent className="p-4">
+                  <div className="flex items-start justify-between gap-2 mb-2">
+                    <div className="flex-1 min-w-0">
+                      <p className="font-body font-semibold text-sm text-foreground truncate">
+                        {expense.description}
+                      </p>
+                      <div className="flex items-center gap-3 mt-1">
+                        <span className="flex items-center gap-1 text-xs text-muted-foreground font-body">
+                          <MapPin className="h-3 w-3" />
+                          {expense.location}
+                        </span>
+                        <span className="flex items-center gap-1 text-xs text-muted-foreground font-body">
+                          <Calendar className="h-3 w-3" />
+                          {formatDateDisplay(expense.date)}
+                        </span>
+                      </div>
+                    </div>
+                    <div className="text-right shrink-0">
+                      <p className="amount-neutral font-display font-bold text-base text-foreground">
+                        {formatCurrency(expense.amount, currency)}
+                      </p>
+                      <p className="text-xs text-muted-foreground font-body mt-0.5">
+                        {formatCurrency(expense.amount / 4, currency)}/person
+                      </p>
+                    </div>
+                  </div>
+                  <Separator className="my-2" />
+                  <div className="flex items-center gap-2">
+                    <MemberAvatar member={expense.paidBy} />
+                    <span className="text-xs font-body text-muted-foreground">
+                      Paid by{" "}
+                      <span className="font-semibold text-foreground">
+                        {expense.paidBy}
+                      </span>
+                    </span>
+                  </div>
+                </CardContent>
+              </Card>
+            ))}
+            {/* Mobile Total */}
+            <Card className="shadow-card border-navy/20 bg-navy/5">
+              <CardContent className="p-4 flex items-center justify-between">
+                <div>
+                  <p className="font-display font-bold text-sm text-foreground">
+                    Total Spend
+                  </p>
+                  <p className="text-xs text-muted-foreground font-body">
+                    {expenses.length} expenses
+                  </p>
+                </div>
+                <div className="text-right">
+                  <p className="amount-neutral font-display font-bold text-lg text-foreground">
+                    {formatCurrency(total, currency)}
+                  </p>
+                  <p className="text-xs text-muted-foreground font-body">
+                    {formatCurrency(perPersonTotal, currency)}/person
+                  </p>
+                </div>
+              </CardContent>
+            </Card>
+          </>
+        )}
       </div>
     </motion.div>
   );
@@ -933,7 +998,17 @@ function ExpenseListTab({ expenses }: { expenses: Expense[] }) {
 
 // ── Settlements Tab ────────────────────────────────────────────────────────────
 
-function SettlementsTab({ expenses }: { expenses: Expense[] }) {
+function SettlementsTab({
+  expenses,
+  currency,
+  onReset,
+}: {
+  expenses: Expense[];
+  currency: Currency;
+  onReset: () => void;
+}) {
+  const [showResetConfirm, setShowResetConfirm] = useState(false);
+
   const balances = computeBalances(expenses);
   const settlements = simplifyDebts(balances);
 
@@ -999,7 +1074,7 @@ function SettlementsTab({ expenses }: { expenses: Expense[] }) {
                       className={`font-display font-bold text-lg ${isPositive ? "amount-positive" : "amount-negative"}`}
                     >
                       {isPositive ? "+" : "-"}
-                      {formatINR(bal)}
+                      {formatCurrency(bal, currency)}
                     </p>
                     <Badge
                       variant="outline"
@@ -1074,7 +1149,7 @@ function SettlementsTab({ expenses }: { expenses: Expense[] }) {
                       {/* Amount in middle */}
                       <div className="flex flex-col items-center justify-center px-4 bg-card border-x border-border py-2 shrink-0">
                         <p className="font-display font-bold text-lg text-teal amount-neutral">
-                          {formatINR(s.amount)}
+                          {formatCurrency(s.amount, currency)}
                         </p>
                         <ArrowRight className="h-4 w-4 text-teal mt-0.5" />
                       </div>
@@ -1124,7 +1199,7 @@ function SettlementsTab({ expenses }: { expenses: Expense[] }) {
                         {member}
                       </span>
                       <span className="amount-neutral text-sm font-semibold text-foreground">
-                        {formatINR(paid)}
+                        {formatCurrency(paid, currency)}
                       </span>
                     </div>
                     <div className="h-1.5 rounded-full bg-muted overflow-hidden">
@@ -1149,6 +1224,43 @@ function SettlementsTab({ expenses }: { expenses: Expense[] }) {
           </CardContent>
         </Card>
       </div>
+
+      {/* Reset / New Settlement */}
+      <div className="pt-2">
+        {!showResetConfirm ? (
+          <Button
+            variant="outline"
+            className="w-full border-destructive text-destructive hover:bg-destructive hover:text-white font-body"
+            onClick={() => setShowResetConfirm(true)}
+          >
+            <RotateCcw className="h-4 w-4 mr-2" />
+            Reset / New Settlement
+          </Button>
+        ) : (
+          <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-4 space-y-3">
+            <p className="text-sm font-body text-foreground text-center">
+              This will delete all <strong>{expenses.length}</strong> expense(s)
+              and start fresh. Are you sure?
+            </p>
+            <div className="flex gap-2">
+              <Button
+                variant="outline"
+                className="flex-1 font-body"
+                onClick={() => setShowResetConfirm(false)}
+              >
+                Cancel
+              </Button>
+              <Button
+                variant="destructive"
+                className="flex-1 font-body"
+                onClick={onReset}
+              >
+                Yes, Reset
+              </Button>
+            </div>
+          </div>
+        )}
+      </div>
     </motion.div>
   );
 }
@@ -1156,12 +1268,18 @@ function SettlementsTab({ expenses }: { expenses: Expense[] }) {
 // ── App ────────────────────────────────────────────────────────────────────────
 
 export default function App() {
-  const [expenses, setExpenses] = useState<Expense[]>(SAMPLE_EXPENSES);
+  const [expenses, setExpenses] = useState<Expense[]>([]);
   const [activeTab, setActiveTab] = useState<Tab>("dashboard");
+  const [currency, setCurrency] = useState<Currency>("INR");
 
   function addExpense(expense: Expense) {
     setExpenses((prev) => [...prev, expense]);
     setActiveTab("list");
+  }
+
+  function handleReset() {
+    setExpenses([]);
+    toast.success("All expenses cleared. Starting fresh!");
   }
 
   return (
@@ -1174,21 +1292,42 @@ export default function App() {
           <div className="flex items-center justify-between h-14">
             <div className="flex items-center gap-2.5">
               <div className="h-8 w-8 rounded-lg bg-teal flex items-center justify-center">
-                <IndianRupee className="h-4 w-4 text-white" />
+                <Wallet className="h-4 w-4 text-white" />
               </div>
               <div>
                 <p className="font-display font-bold text-sm leading-tight">
                   Trip Splitter
                 </p>
                 <p className="text-xs opacity-50 leading-tight font-body">
-                  Manali 2026
+                  TRIP
                 </p>
               </div>
             </div>
-            <div className="flex items-center gap-1.5">
-              {MEMBERS.map((m) => (
-                <MemberAvatar key={m} member={m} size="sm" />
-              ))}
+            <div className="flex items-center gap-2">
+              <Select
+                value={currency}
+                onValueChange={(v) => setCurrency(v as Currency)}
+              >
+                <SelectTrigger className="h-8 w-[130px] text-xs bg-white/10 border-white/20 text-white font-body">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {CURRENCIES.map((c) => (
+                    <SelectItem
+                      key={c.value}
+                      value={c.value}
+                      className="text-xs font-body"
+                    >
+                      {c.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <div className="hidden sm:flex items-center gap-1">
+                {MEMBERS.map((m) => (
+                  <MemberAvatar key={m} member={m} size="sm" />
+                ))}
+              </div>
             </div>
           </div>
         </div>
@@ -1229,22 +1368,30 @@ export default function App() {
           <AnimatePresence mode="wait">
             {activeTab === "dashboard" && (
               <motion.div key="dashboard">
-                <DashboardTab expenses={expenses} />
+                <DashboardTab
+                  expenses={expenses}
+                  currency={currency}
+                  onReset={handleReset}
+                />
               </motion.div>
             )}
             {activeTab === "add" && (
               <motion.div key="add">
-                <AddExpenseTab onAdd={addExpense} />
+                <AddExpenseTab onAdd={addExpense} currency={currency} />
               </motion.div>
             )}
             {activeTab === "list" && (
               <motion.div key="list">
-                <ExpenseListTab expenses={expenses} />
+                <ExpenseListTab expenses={expenses} currency={currency} />
               </motion.div>
             )}
             {activeTab === "settlements" && (
               <motion.div key="settlements">
-                <SettlementsTab expenses={expenses} />
+                <SettlementsTab
+                  expenses={expenses}
+                  currency={currency}
+                  onReset={handleReset}
+                />
               </motion.div>
             )}
           </AnimatePresence>
