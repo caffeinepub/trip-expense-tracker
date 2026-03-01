@@ -8,10 +8,64 @@
 
 import { IDL } from '@icp-sdk/core/candid';
 
-export const idlService = IDL.Service({});
+export const UserRole = IDL.Variant({
+  'admin' : IDL.Null,
+  'user' : IDL.Null,
+  'guest' : IDL.Null,
+});
+export const Expense = IDL.Record({
+  'id' : IDL.Nat,
+  'date' : IDL.Text,
+  'description' : IDL.Text,
+  'amount' : IDL.Float64,
+  'location' : IDL.Text,
+  'paidBy' : IDL.Text,
+});
+
+export const idlService = IDL.Service({
+  '_initializeAccessControlWithSecret' : IDL.Func([IDL.Text], [], []),
+  'addExpense' : IDL.Func(
+      [IDL.Text, IDL.Text, IDL.Text, IDL.Float64, IDL.Text],
+      [IDL.Nat],
+      [],
+    ),
+  'assignCallerUserRole' : IDL.Func([IDL.Principal, UserRole], [], []),
+  'getCallerUserRole' : IDL.Func([], [UserRole], ['query']),
+  'getExpenses' : IDL.Func([], [IDL.Vec(Expense)], ['query']),
+  'isCallerAdmin' : IDL.Func([], [IDL.Bool], ['query']),
+  'resetExpenses' : IDL.Func([], [], []),
+});
 
 export const idlInitArgs = [];
 
-export const idlFactory = ({ IDL }) => { return IDL.Service({}); };
+export const idlFactory = ({ IDL }) => {
+  const UserRole = IDL.Variant({
+    'admin' : IDL.Null,
+    'user' : IDL.Null,
+    'guest' : IDL.Null,
+  });
+  const Expense = IDL.Record({
+    'id' : IDL.Nat,
+    'date' : IDL.Text,
+    'description' : IDL.Text,
+    'amount' : IDL.Float64,
+    'location' : IDL.Text,
+    'paidBy' : IDL.Text,
+  });
+  
+  return IDL.Service({
+    '_initializeAccessControlWithSecret' : IDL.Func([IDL.Text], [], []),
+    'addExpense' : IDL.Func(
+        [IDL.Text, IDL.Text, IDL.Text, IDL.Float64, IDL.Text],
+        [IDL.Nat],
+        [],
+      ),
+    'assignCallerUserRole' : IDL.Func([IDL.Principal, UserRole], [], []),
+    'getCallerUserRole' : IDL.Func([], [UserRole], ['query']),
+    'getExpenses' : IDL.Func([], [IDL.Vec(Expense)], ['query']),
+    'isCallerAdmin' : IDL.Func([], [IDL.Bool], ['query']),
+    'resetExpenses' : IDL.Func([], [], []),
+  });
+};
 
 export const init = ({ IDL }) => { return []; };

@@ -14,24 +14,30 @@
     <meta name="apple-mobile-web-app-title" content="Trip" />
 
     <!-- Manifest -->
-    <link rel="manifest" href="./manifest.json" />
+    <link rel="manifest" href="/manifest.json" />
 
     <!-- Icons -->
-    <link rel="apple-touch-icon" sizes="192x192" href="./assets/generated/icon-192.dim_192x192.png" />
-    <link rel="apple-touch-icon" sizes="512x512" href="./assets/generated/icon-512.dim_512x512.png" />
-    <link rel="icon" type="image/png" sizes="192x192" href="./assets/generated/icon-192.dim_192x192.png" />
-    <link rel="icon" type="image/png" sizes="512x512" href="./assets/generated/icon-512.dim_512x512.png" />
+    <link rel="apple-touch-icon" sizes="192x192" href="/assets/generated/icon-192.dim_192x192.png" />
+    <link rel="apple-touch-icon" sizes="512x512" href="/assets/generated/icon-512.dim_512x512.png" />
+    <link rel="icon" type="image/png" sizes="192x192" href="/assets/generated/icon-192.dim_192x192.png" />
+    <link rel="icon" type="image/png" sizes="512x512" href="/assets/generated/icon-512.dim_512x512.png" />
 
     <!-- Open Graph for sharing -->
     <meta property="og:title" content="Trip Expense Tracker" />
     <meta property="og:description" content="Split trip expenses among friends easily" />
     <meta property="og:type" content="website" />
-    <meta property="og:image" content="./assets/generated/icon-512.dim_512x512.png" />
+    <meta property="og:image" content="/assets/generated/icon-512.dim_512x512.png" />
 
-    <!-- Register Service Worker early -->
+    <!-- Register Service Worker -->
     <script>
       if ('serviceWorker' in navigator) {
-        navigator.serviceWorker.register('./sw.js').catch(() => {});
+        window.addEventListener('load', function() {
+          navigator.serviceWorker.register('/sw.js', { scope: '/' })
+            .then(function(reg) {
+              reg.update();
+            })
+            .catch(function() {});
+        });
       }
     </script>
   </head>

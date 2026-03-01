@@ -1,9 +1,18 @@
 // Service Worker for Trip Expense Tracker PWA
-const CACHE_NAME = 'trip-splitter-v4';
+const CACHE_NAME = 'trip-splitter-v5';
+const PRECACHE_URLS = [
+  '/',
+  '/manifest.json',
+  '/assets/generated/icon-192.dim_192x192.png',
+  '/assets/generated/icon-512.dim_512x512.png'
+];
 
 self.addEventListener('install', (event) => {
-  // Skip waiting immediately - don't block install on precache
-  self.skipWaiting();
+  event.waitUntil(
+    caches.open(CACHE_NAME).then((cache) => {
+      return cache.addAll(PRECACHE_URLS);
+    }).then(() => self.skipWaiting())
+  );
 });
 
 self.addEventListener('activate', (event) => {
@@ -35,7 +44,9 @@ self.addEventListener('fetch', (event) => {
       })
       .catch(() => {
         return caches.match(event.request).then((cached) => {
-          return cached || new Response('Offline', { status: 503 });
+          return cached || caches.match('/').then((fallback) => {
+            return fallback || new Response('Offline', { status: 503 });
+          });
         });
       })
   );

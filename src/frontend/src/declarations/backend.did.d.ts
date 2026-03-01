@@ -10,7 +10,26 @@ import type { ActorMethod } from '@icp-sdk/core/agent';
 import type { IDL } from '@icp-sdk/core/candid';
 import type { Principal } from '@icp-sdk/core/principal';
 
-export interface _SERVICE {}
+export interface Expense {
+  'id' : bigint,
+  'date' : string,
+  'description' : string,
+  'amount' : number,
+  'location' : string,
+  'paidBy' : string,
+}
+export type UserRole = { 'admin' : null } |
+  { 'user' : null } |
+  { 'guest' : null };
+export interface _SERVICE {
+  '_initializeAccessControlWithSecret' : ActorMethod<[string], undefined>,
+  'addExpense' : ActorMethod<[string, string, string, number, string], bigint>,
+  'assignCallerUserRole' : ActorMethod<[Principal, UserRole], undefined>,
+  'getCallerUserRole' : ActorMethod<[], UserRole>,
+  'getExpenses' : ActorMethod<[], Array<Expense>>,
+  'isCallerAdmin' : ActorMethod<[], boolean>,
+  'resetExpenses' : ActorMethod<[], undefined>,
+}
 export declare const idlService: IDL.ServiceClass;
 export declare const idlInitArgs: IDL.Type[];
 export declare const idlFactory: IDL.InterfaceFactory;

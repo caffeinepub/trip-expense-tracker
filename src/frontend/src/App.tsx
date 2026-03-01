@@ -11,6 +11,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
+import { Skeleton } from "@/components/ui/skeleton";
 import { Toaster } from "@/components/ui/sonner";
 import {
   Table,
@@ -20,6 +21,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   ArrowRight,
   Calendar,
@@ -27,12 +29,16 @@ import {
   FileText,
   LayoutDashboard,
   ListOrdered,
+  Loader2,
+  LogIn,
+  LogOut,
   MapPin,
   Mountain,
   Plus,
   Receipt,
   RotateCcw,
   Share2,
+  Shield,
   TrendingUp,
   User,
   Wallet,
@@ -40,6 +46,8 @@ import {
 import { AnimatePresence, type Variants, motion } from "motion/react";
 import { useState } from "react";
 import { toast } from "sonner";
+import { useActor } from "./hooks/useActor";
+import { useInternetIdentity } from "./hooks/useInternetIdentity";
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -228,16 +236,39 @@ function MemberAvatar({
   );
 }
 
+// ── Loading Skeleton ───────────────────────────────────────────────────────────
+
+function DashboardSkeleton() {
+  return (
+    <div className="space-y-6">
+      <Skeleton className="h-44 rounded-xl" />
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+        {[1, 2, 3, 4].map((i) => (
+          <Skeleton key={i} className="h-20 rounded-lg" />
+        ))}
+      </div>
+      <Skeleton className="h-6 w-32" />
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+        {[1, 2, 3, 4].map((i) => (
+          <Skeleton key={i} className="h-28 rounded-lg" />
+        ))}
+      </div>
+    </div>
+  );
+}
+
 // ── Dashboard Tab ──────────────────────────────────────────────────────────────
 
 function DashboardTab({
   expenses,
   currency,
   onReset,
+  isResetting,
 }: {
   expenses: Expense[];
   currency: Currency;
   onReset: () => void;
+  isResetting?: boolean;
 }) {
   const [showResetConfirm, setShowResetConfirm] = useState(false);
 
@@ -475,15 +506,23 @@ function DashboardTab({
                   variant="outline"
                   className="flex-1 font-body"
                   onClick={() => setShowResetConfirm(false)}
+                  disabled={isResetting}
                 >
                   Cancel
                 </Button>
                 <Button
                   variant="destructive"
                   className="flex-1 font-body"
-                  onClick={onReset}
+                  onClick={() => {
+                    onReset();
+                    setShowResetConfirm(false);
+                  }}
+                  disabled={isResetting}
                 >
-                  Yes, Reset
+                  {isResetting ? (
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  ) : null}
+                  {isResetting ? "Resetting..." : "Yes, Reset"}
                 </Button>
               </div>
             </div>
@@ -499,9 +538,17 @@ function DashboardTab({
 function AddExpenseTab({
   onAdd,
   currency,
+  isAdding,
 }: {
-  onAdd: (expense: Expense) => void;
+  onAdd: (
+    date: string,
+    description: string,
+    location: string,
+    amount: number,
+    paidBy: Member,
+  ) => void;
   currency: Currency;
+  isAdding?: boolean;
 }) {
   const today = new Date().toISOString().split("T")[0];
   const currencyInfo = CURRENCIES.find((c) => c.value === currency)!;
@@ -532,14 +579,13 @@ function AddExpenseTab({
     setErrors(e);
     if (Object.keys(e).length > 0) return;
 
-    onAdd({
-      id: Date.now().toString(),
+    onAdd(
       date,
-      description: description.trim(),
-      location: location.trim(),
-      amount: parsedAmount,
-      paidBy: paidBy as Member,
-    });
+      description.trim(),
+      location.trim(),
+      parsedAmount,
+      paidBy as Member,
+    );
 
     toast.success("Expense added successfully!", {
       description: `${description} — ${formatCurrency(parsedAmount, currency)} split among 4 members`,
@@ -756,10 +802,15 @@ function AddExpenseTab({
 
               <Button
                 type="submit"
+                disabled={isAdding}
                 className="w-full font-display font-semibold bg-navy hover:bg-navy-light text-white"
               >
-                <Plus className="h-4 w-4 mr-2" />
-                Add Expense
+                {isAdding ? (
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                ) : (
+                  <Plus className="h-4 w-4 mr-2" />
+                )}
+                {isAdding ? "Adding..." : "Add Expense"}
               </Button>
             </form>
           </CardContent>
@@ -1003,10 +1054,12 @@ function SettlementsTab({
   expenses,
   currency,
   onReset,
+  isResetting,
 }: {
   expenses: Expense[];
   currency: Currency;
   onReset: () => void;
+  isResetting?: boolean;
 }) {
   const [showResetConfirm, setShowResetConfirm] = useState(false);
 
@@ -1248,15 +1301,23 @@ function SettlementsTab({
                 variant="outline"
                 className="flex-1 font-body"
                 onClick={() => setShowResetConfirm(false)}
+                disabled={isResetting}
               >
                 Cancel
               </Button>
               <Button
                 variant="destructive"
                 className="flex-1 font-body"
-                onClick={onReset}
+                onClick={() => {
+                  onReset();
+                  setShowResetConfirm(false);
+                }}
+                disabled={isResetting}
               >
-                Yes, Reset
+                {isResetting ? (
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                ) : null}
+                {isResetting ? "Resetting..." : "Yes, Reset"}
               </Button>
             </div>
           </div>
@@ -1266,23 +1327,183 @@ function SettlementsTab({
   );
 }
 
+// ── Login Screen ───────────────────────────────────────────────────────────────
+
+function LoginScreen() {
+  const { login, isLoggingIn, isInitializing } = useInternetIdentity();
+
+  return (
+    <div className="min-h-screen bg-background flex flex-col items-center justify-center px-4">
+      <motion.div
+        initial={{ opacity: 0, y: 24 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.5, ease: [0.25, 0.1, 0.25, 1] }}
+        className="w-full max-w-sm"
+      >
+        {/* Logo / Brand */}
+        <div className="text-center mb-8">
+          <div className="inline-flex h-16 w-16 rounded-2xl bg-navy items-center justify-center mb-4 shadow-card-md">
+            <Wallet className="h-8 w-8 text-white" />
+          </div>
+          <h1 className="font-display text-2xl font-bold text-foreground tracking-tight">
+            Trip Splitter
+          </h1>
+          <p className="text-sm text-muted-foreground font-body mt-1">
+            Track & split trip expenses with friends
+          </p>
+        </div>
+
+        {/* Login Card */}
+        <Card className="shadow-card-md">
+          <CardContent className="p-6 space-y-5">
+            {/* Members preview */}
+            <div className="flex items-center justify-center gap-2">
+              {MEMBERS.map((m) => (
+                <MemberAvatar key={m} member={m} size="md" />
+              ))}
+            </div>
+            <p className="text-center text-xs text-muted-foreground font-body">
+              Manoj · Ramesh · Abhijit · Pradeep
+            </p>
+
+            <Separator />
+
+            {/* Benefits */}
+            <div className="space-y-2.5">
+              {[
+                {
+                  id: "secure",
+                  icon: <Shield className="h-4 w-4 text-teal" />,
+                  text: "Secure login with your Google or Apple account",
+                },
+                {
+                  id: "sync",
+                  icon: <ArrowRight className="h-4 w-4 text-teal" />,
+                  text: "Expenses sync automatically across all devices",
+                },
+                {
+                  id: "shared",
+                  icon: <CheckCircle2 className="h-4 w-4 text-teal" />,
+                  text: "One login, shared data for the whole group",
+                },
+              ].map((item) => (
+                <div key={item.id} className="flex items-start gap-2.5">
+                  <span className="mt-0.5 shrink-0">{item.icon}</span>
+                  <p className="text-xs text-foreground font-body">
+                    {item.text}
+                  </p>
+                </div>
+              ))}
+            </div>
+
+            <Button
+              onClick={login}
+              disabled={isLoggingIn || isInitializing}
+              className="w-full font-display font-semibold bg-navy hover:bg-navy-light text-white"
+            >
+              {isLoggingIn ? (
+                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+              ) : (
+                <LogIn className="h-4 w-4 mr-2" />
+              )}
+              {isLoggingIn ? "Connecting..." : "Login to Sync Data"}
+            </Button>
+
+            <p className="text-center text-xs text-muted-foreground font-body">
+              Powered by Internet Identity · No passwords needed
+            </p>
+          </CardContent>
+        </Card>
+
+        <p className="text-center text-xs text-muted-foreground font-body mt-6">
+          © {new Date().getFullYear()}.{" "}
+          <a
+            href={`https://caffeine.ai?utm_source=caffeine-footer&utm_medium=referral&utm_content=${encodeURIComponent(window.location.hostname)}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="hover:text-teal transition-colors"
+          >
+            Built with ♥ using caffeine.ai
+          </a>
+        </p>
+      </motion.div>
+    </div>
+  );
+}
+
 // ── App ────────────────────────────────────────────────────────────────────────
 
 export default function App() {
-  const [expenses, setExpenses] = useState<Expense[]>([]);
+  const { identity, clear, isInitializing } = useInternetIdentity();
+  const { actor, isFetching: isActorFetching } = useActor();
+  const queryClient = useQueryClient();
+
   const [activeTab, setActiveTab] = useState<Tab>("dashboard");
   const [currency, setCurrency] = useState<Currency>("INR");
 
-  function addExpense(expense: Expense) {
-    setExpenses((prev) => [...prev, expense]);
-    setActiveTab("list");
-  }
+  // ── Fetch expenses from backend ────────────────────────────────────────────
+  const { data: rawExpenses, isLoading: isLoadingExpenses } = useQuery({
+    queryKey: ["expenses"],
+    queryFn: async () => {
+      if (!actor) return [];
+      return actor.getExpenses();
+    },
+    enabled: !!actor && !isActorFetching,
+  });
 
-  function handleReset() {
-    setExpenses([]);
-    toast.success("All expenses cleared. Starting fresh!");
-  }
+  // Map backend Expense (bigint id) → local Expense (string id)
+  const expenses: Expense[] = (rawExpenses ?? []).map((e) => ({
+    id: e.id.toString(),
+    date: e.date,
+    description: e.description,
+    location: e.location,
+    amount: e.amount,
+    paidBy: e.paidBy as Member,
+  }));
 
+  // ── Add expense mutation ───────────────────────────────────────────────────
+  const addMutation = useMutation({
+    mutationFn: async ({
+      date,
+      description,
+      location,
+      amount,
+      paidBy,
+    }: {
+      date: string;
+      description: string;
+      location: string;
+      amount: number;
+      paidBy: Member;
+    }) => {
+      if (!actor) throw new Error("Not connected");
+      return actor.addExpense(date, description, location, amount, paidBy);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["expenses"] });
+      setActiveTab("list");
+    },
+    onError: () => {
+      toast.error("Failed to add expense. Please try again.");
+    },
+  });
+
+  // ── Reset expenses mutation ────────────────────────────────────────────────
+  const resetMutation = useMutation({
+    mutationFn: async () => {
+      if (!actor) throw new Error("Not connected");
+      return actor.resetExpenses();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["expenses"] });
+      toast.success("All expenses cleared. Starting fresh!");
+    },
+    onError: () => {
+      toast.error("Failed to reset expenses. Please try again.");
+    },
+  });
+
+  // ── Share handler ──────────────────────────────────────────────────────────
   async function handleShare() {
     const shareData = {
       title: "Trip Expense Tracker",
@@ -1297,7 +1518,6 @@ export default function App() {
         // User cancelled share
       }
     } else {
-      // Fallback: copy to clipboard
       try {
         await navigator.clipboard.writeText(window.location.href);
         toast.success("App link copied to clipboard!");
@@ -1306,6 +1526,39 @@ export default function App() {
       }
     }
   }
+
+  // ── Show loading during identity initialization ────────────────────────────
+  if (isInitializing) {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center">
+        <div className="text-center space-y-3">
+          <div className="inline-flex h-12 w-12 rounded-xl bg-navy items-center justify-center">
+            <Wallet className="h-6 w-6 text-white" />
+          </div>
+          <div className="flex items-center gap-2 text-muted-foreground">
+            <Loader2 className="h-4 w-4 animate-spin" />
+            <span className="font-body text-sm">Loading...</span>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // ── Show login if not authenticated ────────────────────────────────────────
+  if (!identity) {
+    return (
+      <>
+        <Toaster position="top-right" />
+        <LoginScreen />
+      </>
+    );
+  }
+
+  // ── Logged in principal short form ────────────────────────────────────────
+  const principalStr = identity.getPrincipal().toString();
+  const shortPrincipal = `${principalStr.slice(0, 5)}…${principalStr.slice(-3)}`;
+
+  const isLoadingData = isActorFetching || isLoadingExpenses;
 
   return (
     <div className="min-h-screen bg-background flex flex-col">
@@ -1329,6 +1582,12 @@ export default function App() {
               </div>
             </div>
             <div className="flex items-center gap-2">
+              {/* Synced indicator */}
+              <div className="hidden sm:flex items-center gap-1 text-white/60 text-xs font-body">
+                <div className="h-1.5 w-1.5 rounded-full bg-teal animate-pulse" />
+                <span className="hidden md:inline">{shortPrincipal}</span>
+              </div>
+
               <Select
                 value={currency}
                 onValueChange={(v) => setCurrency(v as Currency)}
@@ -1348,6 +1607,7 @@ export default function App() {
                   ))}
                 </SelectContent>
               </Select>
+
               <Button
                 variant="ghost"
                 size="sm"
@@ -1357,6 +1617,18 @@ export default function App() {
               >
                 <Share2 className="h-4 w-4" />
               </Button>
+
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-8 px-2 text-white/70 hover:bg-white/10 hover:text-white font-body text-xs gap-1"
+                onClick={clear}
+                title="Logout"
+              >
+                <LogOut className="h-3.5 w-3.5" />
+                <span className="hidden sm:inline">Logout</span>
+              </Button>
+
               <div className="hidden sm:flex items-center gap-1">
                 {MEMBERS.map((m) => (
                   <MemberAvatar key={m} member={m} size="sm" />
@@ -1399,36 +1671,54 @@ export default function App() {
       {/* Main Content */}
       <main className="flex-1">
         <div className="max-w-4xl mx-auto px-4 py-6">
-          <AnimatePresence mode="wait">
-            {activeTab === "dashboard" && (
-              <motion.div key="dashboard">
-                <DashboardTab
-                  expenses={expenses}
-                  currency={currency}
-                  onReset={handleReset}
-                />
-              </motion.div>
-            )}
-            {activeTab === "add" && (
-              <motion.div key="add">
-                <AddExpenseTab onAdd={addExpense} currency={currency} />
-              </motion.div>
-            )}
-            {activeTab === "list" && (
-              <motion.div key="list">
-                <ExpenseListTab expenses={expenses} currency={currency} />
-              </motion.div>
-            )}
-            {activeTab === "settlements" && (
-              <motion.div key="settlements">
-                <SettlementsTab
-                  expenses={expenses}
-                  currency={currency}
-                  onReset={handleReset}
-                />
-              </motion.div>
-            )}
-          </AnimatePresence>
+          {isLoadingData ? (
+            <DashboardSkeleton />
+          ) : (
+            <AnimatePresence mode="wait">
+              {activeTab === "dashboard" && (
+                <motion.div key="dashboard">
+                  <DashboardTab
+                    expenses={expenses}
+                    currency={currency}
+                    onReset={() => resetMutation.mutate()}
+                    isResetting={resetMutation.isPending}
+                  />
+                </motion.div>
+              )}
+              {activeTab === "add" && (
+                <motion.div key="add">
+                  <AddExpenseTab
+                    onAdd={(date, description, location, amount, paidBy) =>
+                      addMutation.mutate({
+                        date,
+                        description,
+                        location,
+                        amount,
+                        paidBy,
+                      })
+                    }
+                    currency={currency}
+                    isAdding={addMutation.isPending}
+                  />
+                </motion.div>
+              )}
+              {activeTab === "list" && (
+                <motion.div key="list">
+                  <ExpenseListTab expenses={expenses} currency={currency} />
+                </motion.div>
+              )}
+              {activeTab === "settlements" && (
+                <motion.div key="settlements">
+                  <SettlementsTab
+                    expenses={expenses}
+                    currency={currency}
+                    onReset={() => resetMutation.mutate()}
+                    isResetting={resetMutation.isPending}
+                  />
+                </motion.div>
+              )}
+            </AnimatePresence>
+          )}
         </div>
       </main>
 
