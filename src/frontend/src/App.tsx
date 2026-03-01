@@ -533,6 +533,23 @@ function DashboardTab({
   );
 }
 
+// ── Predefined Options ─────────────────────────────────────────────────────────
+
+const DESCRIPTION_OPTIONS = [
+  "Food",
+  "Travel",
+  "Drinks",
+  "Cab",
+  "Hotel",
+  "Others",
+];
+const PLACE_OPTIONS = ["Bangkok", "Phu Quoc", "Phuket", "Phi Phi Island"];
+
+// ── Persistent last-used values ────────────────────────────────────────────────
+
+let lastDescription = "";
+let lastLocation = "";
+
 // ── Add Expense Tab ────────────────────────────────────────────────────────────
 
 function AddExpenseTab({
@@ -553,8 +570,8 @@ function AddExpenseTab({
   const today = new Date().toISOString().split("T")[0];
   const currencyInfo = CURRENCIES.find((c) => c.value === currency)!;
 
-  const [description, setDescription] = useState("");
-  const [location, setLocation] = useState("");
+  const [description, setDescription] = useState(lastDescription);
+  const [location, setLocation] = useState(lastLocation);
   const [amount, setAmount] = useState("");
   const [date, setDate] = useState(today);
   const [paidBy, setPaidBy] = useState<Member | "">("");
@@ -565,8 +582,6 @@ function AddExpenseTab({
 
   function validate() {
     const e: Record<string, string> = {};
-    if (!description.trim()) e.description = "Description is required";
-    if (!location.trim()) e.location = "Location is required";
     if (!amount || parsedAmount <= 0) e.amount = "Enter a valid amount";
     if (!date) e.date = "Date is required";
     if (!paidBy) e.paidBy = "Select who paid";
@@ -579,24 +594,21 @@ function AddExpenseTab({
     setErrors(e);
     if (Object.keys(e).length > 0) return;
 
-    onAdd(
-      date,
-      description.trim(),
-      location.trim(),
-      parsedAmount,
-      paidBy as Member,
-    );
+    // Remember last used values
+    lastDescription = description;
+    lastLocation = location;
+
+    onAdd(date, description, location, parsedAmount, paidBy as Member);
 
     toast.success("Expense added successfully!", {
-      description: `${description} — ${formatCurrency(parsedAmount, currency)} split among 4 members`,
+      description: `${description || "Expense"} — ${formatCurrency(parsedAmount, currency)} split among 4 members`,
     });
 
-    setDescription("");
-    setLocation("");
     setAmount("");
     setDate(today);
     setPaidBy("");
     setErrors({});
+    // Keep description and location as-is (remembered for next entry)
   }
 
   return (
@@ -626,48 +638,51 @@ function AddExpenseTab({
             <form onSubmit={handleSubmit} className="space-y-4">
               {/* Description */}
               <div className="space-y-1.5">
-                <Label
-                  htmlFor="description"
-                  className="font-body text-sm font-medium flex items-center gap-1.5"
-                >
+                <Label className="font-body text-sm font-medium flex items-center gap-1.5">
                   <FileText className="h-3.5 w-3.5 text-muted-foreground" />
                   Description
+                  <span className="text-xs text-muted-foreground font-normal">
+                    (optional)
+                  </span>
                 </Label>
-                <Input
-                  id="description"
-                  placeholder="e.g. Hotel stay, Dinner at restaurant"
+                <Select
                   value={description}
-                  onChange={(e) => setDescription(e.target.value)}
-                  className={`font-body ${errors.description ? "border-destructive" : ""}`}
-                />
-                {errors.description && (
-                  <p className="text-xs text-destructive font-body">
-                    {errors.description}
-                  </p>
-                )}
+                  onValueChange={(v) => setDescription(v)}
+                >
+                  <SelectTrigger className="font-body">
+                    <SelectValue placeholder="Select category" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {DESCRIPTION_OPTIONS.map((opt) => (
+                      <SelectItem key={opt} value={opt} className="font-body">
+                        {opt}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </div>
 
               {/* Location */}
               <div className="space-y-1.5">
-                <Label
-                  htmlFor="location"
-                  className="font-body text-sm font-medium flex items-center gap-1.5"
-                >
+                <Label className="font-body text-sm font-medium flex items-center gap-1.5">
                   <MapPin className="h-3.5 w-3.5 text-muted-foreground" />
                   Location / Place
+                  <span className="text-xs text-muted-foreground font-normal">
+                    (optional)
+                  </span>
                 </Label>
-                <Input
-                  id="location"
-                  placeholder="e.g. Bangkok, Ho Chi Minh City"
-                  value={location}
-                  onChange={(e) => setLocation(e.target.value)}
-                  className={`font-body ${errors.location ? "border-destructive" : ""}`}
-                />
-                {errors.location && (
-                  <p className="text-xs text-destructive font-body">
-                    {errors.location}
-                  </p>
-                )}
+                <Select value={location} onValueChange={(v) => setLocation(v)}>
+                  <SelectTrigger className="font-body">
+                    <SelectValue placeholder="Select place" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {PLACE_OPTIONS.map((opt) => (
+                      <SelectItem key={opt} value={opt} className="font-body">
+                        {opt}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </div>
 
               {/* Amount + Date row */}
