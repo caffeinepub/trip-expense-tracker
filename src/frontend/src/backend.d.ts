@@ -15,6 +15,9 @@ export interface Expense {
     location: string;
     paidBy: string;
 }
+export interface UserProfile {
+    name: string;
+}
 export enum UserRole {
     admin = "admin",
     user = "user",
@@ -23,8 +26,11 @@ export enum UserRole {
 export interface backendInterface {
     addExpense(date: string, description: string, location: string, amount: number, paidBy: string): Promise<bigint>;
     assignCallerUserRole(user: Principal, role: UserRole): Promise<void>;
+    getCallerUserProfile(): Promise<UserProfile | null>;
     getCallerUserRole(): Promise<UserRole>;
     getExpenses(): Promise<Array<Expense>>;
+    getUserProfile(user: Principal): Promise<UserProfile | null>;
     isCallerAdmin(): Promise<boolean>;
     resetExpenses(): Promise<void>;
+    saveCallerUserProfile(profile: UserProfile): Promise<void>;
 }
