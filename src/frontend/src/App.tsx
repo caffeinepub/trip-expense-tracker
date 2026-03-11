@@ -1527,20 +1527,23 @@ function SettingsModal({
   initialPlaces: string[];
   onSave: (members: string[], places: string[]) => void;
 }) {
-  const [editMembers, setEditMembers] = useState<string[]>([]);
-  const [editPlaces, setEditPlaces] = useState<string[]>([]);
+  type EditItem = { id: number; value: string };
+  const [editMembers, setEditMembers] = useState<EditItem[]>([]);
+  const [editPlaces, setEditPlaces] = useState<EditItem[]>([]);
+  const idRef = useRef(0);
+  const nextId = useCallback(() => ++idRef.current, []);
 
   // Sync from props when opening
   useEffect(() => {
     if (open) {
-      setEditMembers([...initialMembers]);
-      setEditPlaces([...initialPlaces]);
+      setEditMembers(initialMembers.map((v) => ({ id: nextId(), value: v })));
+      setEditPlaces(initialPlaces.map((v) => ({ id: nextId(), value: v })));
     }
-  }, [open, initialMembers, initialPlaces]);
+  }, [open, initialMembers, initialPlaces, nextId]);
 
   function handleSave() {
-    const cleanMembers = editMembers.map((m) => m.trim()).filter(Boolean);
-    const cleanPlaces = editPlaces.map((p) => p.trim()).filter(Boolean);
+    const cleanMembers = editMembers.map((m) => m.value.trim()).filter(Boolean);
+    const cleanPlaces = editPlaces.map((p) => p.value.trim()).filter(Boolean);
     if (cleanMembers.length === 0) {
       toast.error("At least one member is required.");
       return;
@@ -1580,15 +1583,15 @@ function SettingsModal({
             </h3>
             <div className="space-y-2">
               {editMembers.map((member, i) => (
-                <div
-                  key={`m-${i}-${member}`}
-                  className="flex items-center gap-2"
-                >
+                <div key={member.id} className="flex items-center gap-2">
                   <Input
-                    value={member}
+                    value={member.value}
                     onChange={(e) => {
-                      const updated = [...editMembers];
-                      updated[i] = e.target.value;
+                      const updated = editMembers.map((m) =>
+                        m.id === member.id
+                          ? { ...m, value: e.target.value }
+                          : m,
+                      );
                       setEditMembers(updated);
                     }}
                     placeholder="Member name"
@@ -1601,7 +1604,9 @@ function SettingsModal({
                     className="h-9 w-9 p-0 text-destructive hover:bg-destructive/10 shrink-0"
                     disabled={editMembers.length <= 1}
                     onClick={() =>
-                      setEditMembers(editMembers.filter((_, idx) => idx !== i))
+                      setEditMembers(
+                        editMembers.filter((m) => m.id !== member.id),
+                      )
                     }
                     data-ocid={`settings.member.delete_button.${i + 1}`}
                   >
@@ -1614,7 +1619,9 @@ function SettingsModal({
               variant="outline"
               size="sm"
               className="mt-2 font-body text-xs border-dashed w-full"
-              onClick={() => setEditMembers([...editMembers, ""])}
+              onClick={() =>
+                setEditMembers([...editMembers, { id: nextId(), value: "" }])
+              }
               data-ocid="settings.add_member.button"
             >
               <Plus className="h-3.5 w-3.5 mr-1" />
@@ -1632,15 +1639,13 @@ function SettingsModal({
             </h3>
             <div className="space-y-2">
               {editPlaces.map((place, i) => (
-                <div
-                  key={`p-${i}-${place}`}
-                  className="flex items-center gap-2"
-                >
+                <div key={place.id} className="flex items-center gap-2">
                   <Input
-                    value={place}
+                    value={place.value}
                     onChange={(e) => {
-                      const updated = [...editPlaces];
-                      updated[i] = e.target.value;
+                      const updated = editPlaces.map((p) =>
+                        p.id === place.id ? { ...p, value: e.target.value } : p,
+                      );
                       setEditPlaces(updated);
                     }}
                     placeholder="Place name"
@@ -1653,7 +1658,7 @@ function SettingsModal({
                     className="h-9 w-9 p-0 text-destructive hover:bg-destructive/10 shrink-0"
                     disabled={editPlaces.length <= 1}
                     onClick={() =>
-                      setEditPlaces(editPlaces.filter((_, idx) => idx !== i))
+                      setEditPlaces(editPlaces.filter((p) => p.id !== place.id))
                     }
                     data-ocid={`settings.place.delete_button.${i + 1}`}
                   >
@@ -1666,7 +1671,9 @@ function SettingsModal({
               variant="outline"
               size="sm"
               className="mt-2 font-body text-xs border-dashed w-full"
-              onClick={() => setEditPlaces([...editPlaces, ""])}
+              onClick={() =>
+                setEditPlaces([...editPlaces, { id: nextId(), value: "" }])
+              }
               data-ocid="settings.add_place.button"
             >
               <Plus className="h-3.5 w-3.5 mr-1" />
