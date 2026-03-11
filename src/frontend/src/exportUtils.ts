@@ -7,7 +7,7 @@ type CellObject = {
 };
 type WorkSheet = Record<string, unknown>;
 
-type Member = "Manoj" | "Ramesh" | "Abhijit" | "Pradeep";
+type Member = string;
 
 interface Expense {
   id: string;
@@ -26,8 +26,18 @@ interface Settlement {
 
 type Currency = "INR" | "THB" | "VND";
 
-const MEMBERS_COUNT = 4;
-const MEMBERS: Member[] = ["Manoj", "Ramesh", "Abhijit", "Pradeep"];
+function getMembersFromData(
+  expenses: Expense[],
+  settlements: Settlement[],
+): Member[] {
+  const set = new Set<Member>();
+  for (const e of expenses) set.add(e.paidBy);
+  for (const s of settlements) {
+    set.add(s.from);
+    set.add(s.to);
+  }
+  return Array.from(set);
+}
 
 const CURRENCY_LABELS: Record<Currency, string> = {
   INR: "Indian Rupee (Rs.)",
@@ -53,6 +63,8 @@ export function exportToPDF(
   currency: Currency,
   formatCurrency: (amount: number, currency: Currency) => string,
 ): void {
+  const MEMBERS = getMembersFromData(expenses, settlements);
+  const MEMBERS_COUNT = MEMBERS.length || 1;
   const exportDate = new Date().toLocaleDateString("en-IN", {
     day: "numeric",
     month: "short",
@@ -218,6 +230,8 @@ export function exportToExcel(
 ): void {
   // Use XLSX loaded from CDN via index.html script tag
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const MEMBERS = getMembersFromData(expenses, settlements);
+  const MEMBERS_COUNT = MEMBERS.length || 1;
   const xlsxPromise: Promise<unknown> = (window as any).XLSX
     ? Promise.resolve((window as any).XLSX)
     : new Promise((resolve) => {

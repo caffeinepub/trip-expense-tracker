@@ -47,7 +47,6 @@ import {
   ArrowLeft,
   ArrowRight,
   Calendar,
-  Camera,
   CheckCircle2,
   ChevronDown,
   ChevronLeft,
@@ -69,6 +68,7 @@ import {
   Plus,
   Receipt,
   RotateCcw,
+  Settings,
   Share2,
   Shield,
   Trash2,
@@ -79,7 +79,15 @@ import {
   X,
 } from "lucide-react";
 import { AnimatePresence, type Variants, motion } from "motion/react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
+import { createPortal } from "react-dom";
 import { toast } from "sonner";
 import { exportToExcel, exportToPDF } from "./exportUtils";
 import { useActor } from "./hooks/useActor";
@@ -87,8 +95,14 @@ import { useInternetIdentity } from "./hooks/useInternetIdentity";
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
-type Member = "Manoj" | "Ramesh" | "Abhijit" | "Pradeep";
-const MEMBERS: Member[] = ["Manoj", "Ramesh", "Abhijit", "Pradeep"];
+type Member = string;
+const DEFAULT_MEMBERS: Member[] = ["Manoj", "Ramesh", "Abhijit", "Pradeep"];
+const DEFAULT_PLACES: string[] = [
+  "Bangkok",
+  "Phu Quoc",
+  "Phuket",
+  "Phi Phi Island",
+];
 
 interface Expense {
   id: string;
@@ -98,19 +112,6 @@ interface Expense {
   amount: number;
   paidBy: Member;
 }
-
-interface ItineraryEntry {
-  id: string;
-  date: string;
-  activity: string;
-  time: string;
-  hotelName: string;
-  hotelLocation: string;
-  details: string;
-  photoUrls?: string[];
-}
-
-const ITINERARY_STORAGE_KEY = "trip-itinerary";
 
 // ── Currency ───────────────────────────────────────────────────────────────────
 
@@ -158,7 +159,46 @@ function formatDateDisplay(dateStr: string): string {
   });
 }
 
-// ── Settlement Algorithm ───────────────────────────────────────────────────────
+// ── Settlement Algorithm ─────────────────────────────────────────────────────
+// ── Trip Context ──────────────────────────────────────────────────────────────
+
+interface TripContextValue {
+  members: Member[];
+  places: string[];
+}
+
+const TripContext = createContext<TripContextValue>({
+  members: DEFAULT_MEMBERS,
+  places: DEFAULT_PLACES,
+});
+
+function useTripContext() {
+  return useContext(TripContext);
+}
+
+// ── Avatar Helpers ─────────────────────────────────────────────────────────────
+
+const MEMBER_COLOR_POOL = [
+  "bg-blue-600",
+  "bg-teal-600",
+  "bg-indigo-600",
+  "bg-cyan-600",
+  "bg-purple-600",
+  "bg-orange-600",
+  "bg-rose-600",
+  "bg-emerald-600",
+];
+
+function getMemberColor(members: Member[], member: Member): string {
+  const idx = members.indexOf(member);
+  return MEMBER_COLOR_POOL[(idx >= 0 ? idx : 0) % MEMBER_COLOR_POOL.length];
+}
+
+function getMemberInitials(member: Member): string {
+  const parts = member.trim().split(/\s+/);
+  if (parts.length >= 2) return (parts[0][0] + parts[1][0]).toUpperCase();
+  return member.slice(0, 2).toUpperCase();
+}
 
 interface Settlement {
   from: Member;
@@ -166,20 +206,21 @@ interface Settlement {
   amount: number;
 }
 
-function computeBalances(expenses: Expense[]): Record<Member, number> {
-  const balances: Record<Member, number> = {
-    Manoj: 0,
-    Ramesh: 0,
-    Abhijit: 0,
-    Pradeep: 0,
-  };
+function computeBalances(
+  expenses: Expense[],
+  members: Member[],
+): Record<Member, number> {
+  const balances: Record<Member, number> = {};
+  for (const m of members) balances[m] = 0;
 
   for (const expense of expenses) {
-    const share = expense.amount / MEMBERS.length;
+    const share = expense.amount / (members.length || 1);
     // Payer gets credit for others' shares
-    balances[expense.paidBy] += expense.amount - share;
+    if (balances[expense.paidBy] !== undefined) {
+      balances[expense.paidBy] += expense.amount - share;
+    }
     // Everyone else owes their share
-    for (const member of MEMBERS) {
+    for (const member of members) {
       if (member !== expense.paidBy) {
         balances[member] -= share;
       }
@@ -189,14 +230,17 @@ function computeBalances(expenses: Expense[]): Record<Member, number> {
   return balances;
 }
 
-function simplifyDebts(balances: Record<Member, number>): Settlement[] {
+function simplifyDebts(
+  balances: Record<Member, number>,
+  members: Member[],
+): Settlement[] {
   const settlements: Settlement[] = [];
 
   // Work with copies as mutable arrays
   const creditors: { member: Member; amount: number }[] = [];
   const debtors: { member: Member; amount: number }[] = [];
 
-  for (const member of MEMBERS) {
+  for (const member of members) {
     const bal = Math.round(balances[member]);
     if (bal > 0) creditors.push({ member, amount: bal });
     else if (bal < 0) debtors.push({ member, amount: -bal });
@@ -228,22 +272,6 @@ function simplifyDebts(balances: Record<Member, number>): Settlement[] {
 
   return settlements;
 }
-
-// ── Avatar Colors ──────────────────────────────────────────────────────────────
-
-const MEMBER_COLORS: Record<Member, string> = {
-  Manoj: "bg-blue-600",
-  Ramesh: "bg-teal-600",
-  Abhijit: "bg-indigo-600",
-  Pradeep: "bg-cyan-600",
-};
-
-const MEMBER_INITIALS: Record<Member, string> = {
-  Manoj: "MN",
-  Ramesh: "RM",
-  Abhijit: "AB",
-  Pradeep: "PR",
-};
 
 // ── Export Button ──────────────────────────────────────────────────────────────
 
@@ -311,7 +339,7 @@ function ExportButton({
 
 // ── Tab Type ───────────────────────────────────────────────────────────────────
 
-type Tab = "dashboard" | "add" | "list" | "settlements" | "itinerary";
+type Tab = "dashboard" | "add" | "list" | "settlements";
 
 const TABS: { id: Tab; label: string; icon: React.ReactNode }[] = [
   {
@@ -326,11 +354,6 @@ const TABS: { id: Tab; label: string; icon: React.ReactNode }[] = [
     label: "Settlements",
     icon: <Wallet className="h-4 w-4" />,
   },
-  {
-    id: "itinerary",
-    label: "Itinerary",
-    icon: <Camera className="h-4 w-4" />,
-  },
 ];
 
 // ── Member Avatar ──────────────────────────────────────────────────────────────
@@ -339,17 +362,20 @@ function MemberAvatar({
   member,
   size = "sm",
 }: { member: Member; size?: "sm" | "md" | "lg" }) {
+  const { members } = useTripContext();
   const sizeClass =
     size === "lg"
       ? "h-12 w-12 text-sm"
       : size === "md"
         ? "h-9 w-9 text-xs"
         : "h-7 w-7 text-xs";
+  const colorClass = getMemberColor(members, member);
+  const initials = getMemberInitials(member);
   return (
     <span
-      className={`inline-flex items-center justify-center rounded-full font-display font-bold text-white ${MEMBER_COLORS[member]} ${sizeClass}`}
+      className={`inline-flex items-center justify-center rounded-full font-display font-bold text-white ${colorClass} ${sizeClass}`}
     >
-      {MEMBER_INITIALS[member]}
+      {initials}
     </span>
   );
 }
@@ -375,1057 +401,6 @@ function DashboardSkeleton() {
   );
 }
 
-// ── Photo Upload Utilities ─────────────────────────────────────────────────────
-
-const MAX_PHOTO_SIZE_MB = 10;
-
-async function fileToBase64(file: File): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(reader.result as string);
-    reader.onerror = reject;
-    reader.readAsDataURL(file);
-  });
-}
-
-interface UploadingPhoto {
-  id: string;
-  name: string;
-  progress: number;
-  error?: string;
-  url?: string;
-}
-
-// ── Plan Itinerary Dialog ──────────────────────────────────────────────────────
-
-function PlanItineraryDialog({
-  onAdd,
-  children,
-  editEntry,
-  onEdit,
-  open: controlledOpen,
-  onOpenChange: controlledOnOpenChange,
-}: {
-  onAdd?: (entry: ItineraryEntry) => void;
-  children?: React.ReactNode;
-  editEntry?: ItineraryEntry;
-  onEdit?: (entry: ItineraryEntry) => void;
-  open?: boolean;
-  onOpenChange?: (open: boolean) => void;
-}) {
-  const today = new Date().toISOString().split("T")[0];
-  const isEditMode = !!editEntry;
-  const [internalOpen, setInternalOpen] = useState(false);
-  const open = controlledOpen !== undefined ? controlledOpen : internalOpen;
-  const setOpen = controlledOnOpenChange ?? setInternalOpen;
-
-  const [date, setDate] = useState(editEntry?.date ?? today);
-  const [activity, setActivity] = useState(editEntry?.activity ?? "");
-  const [time, setTime] = useState(editEntry?.time ?? "");
-  const [hotelName, setHotelName] = useState(editEntry?.hotelName ?? "");
-  const [hotelLocation, setHotelLocation] = useState(
-    editEntry?.hotelLocation ?? "",
-  );
-  const [details, setDetails] = useState(editEntry?.details ?? "");
-  const [errors, setErrors] = useState<Record<string, string>>({});
-
-  // Photo state
-  const [existingPhotos, setExistingPhotos] = useState<string[]>(
-    editEntry?.photoUrls ?? [],
-  );
-  const [uploadingPhotos, setUploadingPhotos] = useState<UploadingPhoto[]>([]);
-  const fileInputRef = useRef<HTMLInputElement>(null);
-
-  // Sync fields when editEntry changes (dialog reopened for a different entry)
-  useEffect(() => {
-    if (editEntry) {
-      setDate(editEntry.date);
-      setActivity(editEntry.activity);
-      setTime(editEntry.time);
-      setHotelName(editEntry.hotelName);
-      setHotelLocation(editEntry.hotelLocation);
-      setDetails(editEntry.details);
-      setExistingPhotos(editEntry.photoUrls ?? []);
-    }
-  }, [editEntry]);
-
-  async function handlePhotoFiles(files: FileList) {
-    const validFiles = Array.from(files).filter((file) => {
-      if (file.size > MAX_PHOTO_SIZE_MB * 1024 * 1024) {
-        toast.warning(`${file.name} is over 10MB and was skipped.`);
-        return false;
-      }
-      return true;
-    });
-
-    for (const file of validFiles) {
-      const uploadId = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
-      setUploadingPhotos((prev) => [
-        ...prev,
-        { id: uploadId, name: file.name, progress: 0 },
-      ]);
-
-      try {
-        // Simulate progress in steps while we do base64 conversion
-        setUploadingPhotos((prev) =>
-          prev.map((p) => (p.id === uploadId ? { ...p, progress: 30 } : p)),
-        );
-        const dataUrl = await fileToBase64(file);
-        setUploadingPhotos((prev) =>
-          prev.map((p) => (p.id === uploadId ? { ...p, progress: 80 } : p)),
-        );
-        // Small delay to show progress
-        await new Promise((r) => setTimeout(r, 150));
-        setUploadingPhotos((prev) =>
-          prev.map((p) =>
-            p.id === uploadId ? { ...p, progress: 100, url: dataUrl } : p,
-          ),
-        );
-        // Move to confirmed after short delay
-        await new Promise((r) => setTimeout(r, 300));
-        setExistingPhotos((prev) => [...prev, dataUrl]);
-        setUploadingPhotos((prev) => prev.filter((p) => p.id !== uploadId));
-      } catch {
-        setUploadingPhotos((prev) =>
-          prev.map((p) =>
-            p.id === uploadId
-              ? { ...p, progress: 0, error: "Upload failed" }
-              : p,
-          ),
-        );
-        toast.error(`Failed to upload ${file.name}`);
-        await new Promise((r) => setTimeout(r, 1500));
-        setUploadingPhotos((prev) => prev.filter((p) => p.id !== uploadId));
-      }
-    }
-  }
-
-  function handleDropZone(e: React.DragEvent) {
-    e.preventDefault();
-    if (e.dataTransfer.files.length > 0) {
-      handlePhotoFiles(e.dataTransfer.files);
-    }
-  }
-
-  function handleSave() {
-    const e: Record<string, string> = {};
-    if (!activity.trim()) e.activity = "Activity is required";
-    if (!date) e.date = "Date is required";
-    setErrors(e);
-    if (Object.keys(e).length > 0) return;
-
-    const entry: ItineraryEntry = {
-      id:
-        editEntry?.id ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`,
-      date,
-      activity: activity.trim(),
-      time,
-      hotelName: hotelName.trim(),
-      hotelLocation: hotelLocation.trim(),
-      details: details.trim(),
-      photoUrls: existingPhotos,
-    };
-
-    if (isEditMode && onEdit) {
-      onEdit(entry);
-      toast.success("Itinerary entry updated!", {
-        description: `${entry.activity} on ${formatDateDisplay(date)}`,
-      });
-    } else if (onAdd) {
-      onAdd(entry);
-      toast.success("Itinerary entry added!", {
-        description: `${activity} on ${formatDateDisplay(date)}`,
-      });
-      // Reset form only for add mode
-      setActivity("");
-      setTime("");
-      setHotelName("");
-      setHotelLocation("");
-      setDetails("");
-      setExistingPhotos([]);
-    }
-    setErrors({});
-    setOpen(false);
-  }
-
-  const isUploading = uploadingPhotos.length > 0;
-
-  return (
-    <Dialog open={open} onOpenChange={setOpen}>
-      {children && <DialogTrigger asChild>{children}</DialogTrigger>}
-      <DialogContent className="sm:max-w-md max-h-[90vh] overflow-y-auto">
-        <DialogHeader>
-          <DialogTitle className="font-display flex items-center gap-2">
-            <MapPin className="h-4 w-4 text-teal" />
-            {isEditMode ? "Edit Itinerary Entry" : "Plan Itinerary"}
-          </DialogTitle>
-        </DialogHeader>
-
-        <div className="space-y-3 py-2">
-          {/* Date + Time row */}
-          <div className="grid grid-cols-2 gap-3">
-            <div className="space-y-1.5">
-              <Label className="font-body text-xs font-medium flex items-center gap-1">
-                <Calendar className="h-3 w-3 text-muted-foreground" />
-                Date *
-              </Label>
-              <Input
-                type="date"
-                value={date}
-                onChange={(e) => setDate(e.target.value)}
-                className={`font-body h-9 ${errors.date ? "border-destructive" : ""}`}
-                data-ocid="itinerary.dialog.date.input"
-              />
-              {errors.date && (
-                <p className="text-xs text-destructive">{errors.date}</p>
-              )}
-            </div>
-            <div className="space-y-1.5">
-              <Label className="font-body text-xs font-medium flex items-center gap-1">
-                <Clock className="h-3 w-3 text-muted-foreground" />
-                Time
-                <span className="text-muted-foreground">(opt)</span>
-              </Label>
-              <Input
-                type="time"
-                value={time}
-                onChange={(e) => setTime(e.target.value)}
-                className="font-body h-9"
-                data-ocid="itinerary.dialog.time.input"
-              />
-            </div>
-          </div>
-
-          {/* Activity */}
-          <div className="space-y-1.5">
-            <Label className="font-body text-xs font-medium">Activity *</Label>
-            <Input
-              type="text"
-              placeholder="e.g. Visit Grand Palace, Boat Tour..."
-              value={activity}
-              onChange={(e) => setActivity(e.target.value)}
-              className={`font-body h-9 ${errors.activity ? "border-destructive" : ""}`}
-              data-ocid="itinerary.dialog.activity.input"
-            />
-            {errors.activity && (
-              <p className="text-xs text-destructive">{errors.activity}</p>
-            )}
-          </div>
-
-          {/* Hotel Name */}
-          <div className="space-y-1.5">
-            <Label className="font-body text-xs font-medium flex items-center gap-1">
-              Hotel Name
-              <span className="text-muted-foreground font-normal">(opt)</span>
-            </Label>
-            <Input
-              type="text"
-              placeholder="e.g. Marriott Bangkok"
-              value={hotelName}
-              onChange={(e) => setHotelName(e.target.value)}
-              className="font-body h-9"
-              data-ocid="itinerary.dialog.hotel_name.input"
-            />
-          </div>
-
-          {/* Hotel Location */}
-          <div className="space-y-1.5">
-            <Label className="font-body text-xs font-medium flex items-center gap-1">
-              <MapPin className="h-3 w-3 text-muted-foreground" />
-              Hotel Location
-              <span className="text-muted-foreground font-normal">(opt)</span>
-            </Label>
-            <Input
-              type="text"
-              placeholder="Address or landmark — opens in Google Maps"
-              value={hotelLocation}
-              onChange={(e) => setHotelLocation(e.target.value)}
-              className="font-body h-9"
-              data-ocid="itinerary.dialog.hotel_location.input"
-            />
-            {hotelLocation && (
-              <p className="text-xs text-muted-foreground font-body">
-                Will open in Google Maps
-              </p>
-            )}
-          </div>
-
-          {/* Details */}
-          <div className="space-y-1.5">
-            <Label className="font-body text-xs font-medium flex items-center gap-1">
-              Notes / Details
-              <span className="text-muted-foreground font-normal">(opt)</span>
-            </Label>
-            <Textarea
-              placeholder="Meeting point, dress code, what to bring, bookings..."
-              value={details}
-              onChange={(e) => setDetails(e.target.value)}
-              className="font-body text-sm resize-none"
-              rows={3}
-              data-ocid="itinerary.dialog.details.textarea"
-            />
-          </div>
-
-          {/* Photo Upload Section */}
-          <div className="space-y-2">
-            <Label className="font-body text-xs font-medium flex items-center gap-1">
-              <Camera className="h-3 w-3 text-muted-foreground" />
-              Add Photos
-              <span className="text-muted-foreground font-normal">(opt)</span>
-            </Label>
-
-            {/* Existing photos thumbnails */}
-            {existingPhotos.length > 0 && (
-              <div className="grid grid-cols-4 gap-1.5">
-                {existingPhotos.map((url, idx) => (
-                  <div
-                    // biome-ignore lint/suspicious/noArrayIndexKey: stable key for thumbnails
-                    key={idx}
-                    className="relative aspect-square rounded-md overflow-hidden border border-border group"
-                  >
-                    <img
-                      src={url}
-                      alt={`Trip ${idx + 1}`}
-                      className="w-full h-full object-cover"
-                    />
-                    <button
-                      type="button"
-                      onClick={() =>
-                        setExistingPhotos((prev) =>
-                          prev.filter((_, i) => i !== idx),
-                        )
-                      }
-                      className="absolute top-0.5 right-0.5 h-5 w-5 rounded-full bg-black/60 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
-                      title="Remove photo"
-                    >
-                      <X className="h-3 w-3 text-white" />
-                    </button>
-                  </div>
-                ))}
-              </div>
-            )}
-
-            {/* Upload progress indicators */}
-            {uploadingPhotos.map((up) => (
-              <div
-                key={up.id}
-                className="flex items-center gap-2 rounded-md bg-muted/50 px-3 py-2"
-              >
-                <Loader2 className="h-3.5 w-3.5 animate-spin text-teal shrink-0" />
-                <div className="flex-1 min-w-0">
-                  <p className="text-xs font-body truncate">{up.name}</p>
-                  <Progress value={up.progress} className="h-1 mt-1" />
-                </div>
-                <span className="text-xs text-muted-foreground font-body shrink-0">
-                  {up.progress}%
-                </span>
-              </div>
-            ))}
-
-            {/* Drop zone */}
-            <button
-              type="button"
-              className="w-full border-2 border-dashed border-border rounded-lg p-4 text-center cursor-pointer hover:border-teal/60 hover:bg-teal-light/30 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-              onDragOver={(e) => e.preventDefault()}
-              onDrop={handleDropZone}
-              onClick={() => fileInputRef.current?.click()}
-              data-ocid="itinerary.dialog.dropzone"
-            >
-              <Upload className="h-5 w-5 text-muted-foreground mx-auto mb-1.5" />
-              <p className="text-xs font-body text-muted-foreground">
-                Tap to select images or drag & drop
-              </p>
-              <p className="text-xs text-muted-foreground/60 font-body mt-0.5">
-                Max 10MB per image
-              </p>
-            </button>
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept="image/*"
-              multiple
-              className="hidden"
-              onChange={(e) => {
-                if (e.target.files) {
-                  handlePhotoFiles(e.target.files);
-                  e.target.value = "";
-                }
-              }}
-              data-ocid="itinerary.dialog.upload_button"
-            />
-          </div>
-        </div>
-
-        <DialogFooter className="gap-2">
-          <Button
-            variant="outline"
-            onClick={() => setOpen(false)}
-            className="font-body"
-            data-ocid="itinerary.dialog.cancel_button"
-          >
-            Cancel
-          </Button>
-          <Button
-            onClick={handleSave}
-            disabled={isUploading}
-            className="font-display font-semibold bg-navy hover:bg-navy-light text-white"
-            data-ocid="itinerary.dialog.save_button"
-          >
-            {isUploading ? (
-              <Loader2 className="h-4 w-4 mr-1.5 animate-spin" />
-            ) : isEditMode ? (
-              <Pencil className="h-4 w-4 mr-1.5" />
-            ) : (
-              <Plus className="h-4 w-4 mr-1.5" />
-            )}
-            {isUploading
-              ? "Uploading..."
-              : isEditMode
-                ? "Save Changes"
-                : "Add to Itinerary"}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
-  );
-}
-
-// ── Itinerary Panel ────────────────────────────────────────────────────────────
-
-function ItineraryPanel({
-  entries,
-  onAdd,
-  onDelete,
-  onEdit,
-}: {
-  entries: ItineraryEntry[];
-  onAdd: (entry: ItineraryEntry) => void;
-  onDelete: (id: string) => void;
-  onEdit: (entry: ItineraryEntry) => void;
-}) {
-  const [isOpen, setIsOpen] = useState(true);
-  const [editingEntry, setEditingEntry] = useState<ItineraryEntry | null>(null);
-  const [editDialogOpen, setEditDialogOpen] = useState(false);
-
-  // Group entries by date, sorted ascending
-  const grouped = entries.reduce<Record<string, ItineraryEntry[]>>(
-    (acc, entry) => {
-      if (!acc[entry.date]) acc[entry.date] = [];
-      acc[entry.date].push(entry);
-      return acc;
-    },
-    {},
-  );
-
-  const sortedDates = Object.keys(grouped).sort(
-    (a, b) => new Date(a).getTime() - new Date(b).getTime(),
-  );
-
-  function handleEditClick(entry: ItineraryEntry) {
-    setEditingEntry(entry);
-    setEditDialogOpen(true);
-  }
-
-  return (
-    <Card className="shadow-card border border-border flex flex-col">
-      {/* Edit dialog (controlled, no trigger child) */}
-      {editingEntry && (
-        <PlanItineraryDialog
-          editEntry={editingEntry}
-          onEdit={onEdit}
-          open={editDialogOpen}
-          onOpenChange={(o) => {
-            setEditDialogOpen(o);
-            if (!o) setEditingEntry(null);
-          }}
-        />
-      )}
-
-      <Collapsible open={isOpen} onOpenChange={setIsOpen}>
-        <CollapsibleTrigger asChild>
-          <button
-            type="button"
-            className="w-full flex items-center justify-between px-4 py-3 hover:bg-muted/40 transition-colors rounded-t-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-          >
-            <div className="flex items-center gap-2">
-              <div className="h-7 w-7 rounded-md bg-navy flex items-center justify-center shrink-0">
-                <Calendar className="h-3.5 w-3.5 text-white" />
-              </div>
-              <span className="font-display font-bold text-sm text-foreground">
-                Itinerary
-              </span>
-              {entries.length > 0 && (
-                <Badge
-                  variant="secondary"
-                  className="font-body text-xs h-5 px-1.5"
-                >
-                  {entries.length}
-                </Badge>
-              )}
-            </div>
-            {isOpen ? (
-              <ChevronUp className="h-4 w-4 text-muted-foreground" />
-            ) : (
-              <ChevronDown className="h-4 w-4 text-muted-foreground" />
-            )}
-          </button>
-        </CollapsibleTrigger>
-
-        <CollapsibleContent>
-          <Separator />
-          <div className="max-h-[380px] overflow-y-auto overscroll-contain px-3 py-2 space-y-3">
-            {entries.length === 0 ? (
-              <div className="py-6 text-center">
-                <MapPin className="h-8 w-8 text-muted-foreground mx-auto mb-2 opacity-40" />
-                <p className="text-xs font-body text-muted-foreground">
-                  No itinerary yet.
-                </p>
-                <p className="text-xs font-body text-muted-foreground">
-                  Plan your trip!
-                </p>
-              </div>
-            ) : (
-              sortedDates.map((date) => (
-                <div key={date}>
-                  <p className="text-xs font-display font-bold text-navy uppercase tracking-wider mb-1.5 flex items-center gap-1.5">
-                    <Calendar className="h-3 w-3" />
-                    {formatDateDisplay(date)}
-                  </p>
-                  <div className="space-y-2 pl-1">
-                    {grouped[date]
-                      .sort((a, b) => a.time.localeCompare(b.time))
-                      .map((entry) => (
-                        <div
-                          key={entry.id}
-                          className="rounded-lg border border-border bg-card p-2.5 space-y-1"
-                        >
-                          {/* Header row: time + activity + action buttons */}
-                          <div className="flex items-start justify-between gap-1">
-                            <div className="flex items-start gap-1.5 flex-1 min-w-0">
-                              {entry.time && (
-                                <span className="inline-flex items-center gap-0.5 text-xs font-body text-muted-foreground shrink-0 mt-0.5">
-                                  <Clock className="h-3 w-3" />
-                                  {entry.time}
-                                </span>
-                              )}
-                              <p className="font-display font-bold text-xs text-foreground leading-tight">
-                                {entry.activity}
-                              </p>
-                            </div>
-                            {/* Edit & Delete buttons */}
-                            <div className="flex items-center gap-0.5 shrink-0 ml-1">
-                              <button
-                                type="button"
-                                onClick={() => handleEditClick(entry)}
-                                className="h-6 w-6 flex items-center justify-center rounded hover:bg-muted transition-colors text-muted-foreground hover:text-foreground"
-                                title="Edit entry"
-                              >
-                                <Pencil className="h-3 w-3" />
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  onDelete(entry.id);
-                                  toast.success("Entry removed");
-                                }}
-                                className="h-6 w-6 flex items-center justify-center rounded hover:bg-destructive/10 transition-colors text-muted-foreground hover:text-destructive"
-                                title="Delete entry"
-                              >
-                                <Trash2 className="h-3 w-3" />
-                              </button>
-                            </div>
-                          </div>
-                          {entry.hotelName && (
-                            <div className="flex items-center gap-1 text-xs font-body text-muted-foreground">
-                              <MapPin className="h-2.5 w-2.5 shrink-0" />
-                              <span className="truncate">
-                                {entry.hotelName}
-                              </span>
-                            </div>
-                          )}
-                          {entry.hotelLocation && (
-                            <a
-                              href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(entry.hotelLocation)}`}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="inline-flex items-center gap-1 text-xs font-body text-teal hover:underline"
-                            >
-                              <MapPin className="h-2.5 w-2.5 shrink-0" />
-                              <span className="truncate max-w-[140px]">
-                                {entry.hotelLocation}
-                              </span>
-                            </a>
-                          )}
-                          {entry.details && (
-                            <p className="text-xs font-body text-muted-foreground leading-snug">
-                              {entry.details}
-                            </p>
-                          )}
-                          {/* Photo count badge */}
-                          {entry.photoUrls && entry.photoUrls.length > 0 && (
-                            <div className="flex items-center gap-1">
-                              <Camera className="h-2.5 w-2.5 text-muted-foreground" />
-                              <span className="text-xs font-body text-muted-foreground">
-                                {entry.photoUrls.length} photo
-                                {entry.photoUrls.length !== 1 ? "s" : ""}
-                              </span>
-                            </div>
-                          )}
-                        </div>
-                      ))}
-                  </div>
-                </div>
-              ))
-            )}
-          </div>
-          <Separator />
-          <div className="px-3 py-2.5">
-            <PlanItineraryDialog onAdd={onAdd}>
-              <Button
-                variant="outline"
-                size="sm"
-                className="w-full font-body text-xs border-navy/30 text-navy hover:bg-navy hover:text-white h-8"
-                data-ocid="itinerary.panel.open_modal_button"
-              >
-                <MapPin className="h-3.5 w-3.5 mr-1.5" />
-                Plan Itinerary
-              </Button>
-            </PlanItineraryDialog>
-          </div>
-        </CollapsibleContent>
-      </Collapsible>
-    </Card>
-  );
-}
-
-// ── Photo Lightbox ─────────────────────────────────────────────────────────────
-
-function PhotoLightbox({
-  photos,
-  initialIndex,
-  onClose,
-}: {
-  photos: string[];
-  initialIndex: number;
-  onClose: () => void;
-}) {
-  const [currentIndex, setCurrentIndex] = useState(initialIndex);
-
-  const handlePrev = useCallback(() => {
-    setCurrentIndex((i) => (i - 1 + photos.length) % photos.length);
-  }, [photos.length]);
-
-  const handleNext = useCallback(() => {
-    setCurrentIndex((i) => (i + 1) % photos.length);
-  }, [photos.length]);
-
-  useEffect(() => {
-    function handleKey(e: KeyboardEvent) {
-      if (e.key === "Escape") onClose();
-      if (e.key === "ArrowLeft") handlePrev();
-      if (e.key === "ArrowRight") handleNext();
-    }
-    window.addEventListener("keydown", handleKey);
-    return () => window.removeEventListener("keydown", handleKey);
-  }, [onClose, handlePrev, handleNext]);
-
-  return (
-    // biome-ignore lint/a11y/useKeyWithClickEvents: keyboard handled via useEffect above
-    <div
-      className="fixed inset-0 z-50 bg-black/90 flex items-center justify-center"
-      onClick={onClose}
-      data-ocid="itinerary.lightbox.modal"
-    >
-      {/* Close button */}
-      <button
-        type="button"
-        className="absolute top-4 right-4 h-10 w-10 rounded-full bg-white/10 flex items-center justify-center text-white hover:bg-white/20 transition-colors z-10"
-        onClick={onClose}
-        data-ocid="itinerary.lightbox.close_button"
-      >
-        <X className="h-5 w-5" />
-      </button>
-
-      {/* Counter */}
-      <div className="absolute top-4 left-1/2 -translate-x-1/2 text-white/70 text-sm font-body bg-black/40 px-3 py-1 rounded-full">
-        {currentIndex + 1} / {photos.length}
-      </div>
-
-      {/* Image */}
-      {/* biome-ignore lint/a11y/useKeyWithClickEvents: stopPropagation only */}
-      <div
-        className="relative max-w-[90vw] max-h-[85vh]"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <img
-          src={photos[currentIndex]}
-          alt={`Trip view ${currentIndex + 1}`}
-          className="max-w-[90vw] max-h-[85vh] object-contain rounded-lg shadow-2xl"
-        />
-      </div>
-
-      {/* Prev / Next */}
-      {photos.length > 1 && (
-        <>
-          <button
-            type="button"
-            className="absolute left-4 top-1/2 -translate-y-1/2 h-12 w-12 rounded-full bg-white/10 flex items-center justify-center text-white hover:bg-white/20 transition-colors"
-            onClick={(e) => {
-              e.stopPropagation();
-              handlePrev();
-            }}
-            data-ocid="itinerary.lightbox.pagination_prev"
-          >
-            <ChevronLeft className="h-6 w-6" />
-          </button>
-          <button
-            type="button"
-            className="absolute right-4 top-1/2 -translate-y-1/2 h-12 w-12 rounded-full bg-white/10 flex items-center justify-center text-white hover:bg-white/20 transition-colors"
-            onClick={(e) => {
-              e.stopPropagation();
-              handleNext();
-            }}
-            data-ocid="itinerary.lightbox.pagination_next"
-          >
-            <ChevronRight className="h-6 w-6" />
-          </button>
-        </>
-      )}
-    </div>
-  );
-}
-
-// ── Itinerary Tab ──────────────────────────────────────────────────────────────
-
-function ItineraryTab({
-  entries,
-  onAdd,
-  onDelete,
-  onEdit,
-}: {
-  entries: ItineraryEntry[];
-  onAdd: (entry: ItineraryEntry) => void;
-  onDelete: (id: string) => void;
-  onEdit: (entry: ItineraryEntry) => void;
-}) {
-  const [editingEntry, setEditingEntry] = useState<ItineraryEntry | null>(null);
-  const [editDialogOpen, setEditDialogOpen] = useState(false);
-  const [addDialogOpen, setAddDialogOpen] = useState(false);
-  const [lightbox, setLightbox] = useState<{
-    photos: string[];
-    index: number;
-  } | null>(null);
-
-  // Group entries by date, sorted ascending
-  const grouped = entries.reduce<Record<string, ItineraryEntry[]>>(
-    (acc, entry) => {
-      if (!acc[entry.date]) acc[entry.date] = [];
-      acc[entry.date].push(entry);
-      return acc;
-    },
-    {},
-  );
-
-  const sortedDates = Object.keys(grouped).sort(
-    (a, b) => new Date(a).getTime() - new Date(b).getTime(),
-  );
-
-  function handleEditClick(entry: ItineraryEntry) {
-    setEditingEntry(entry);
-    setEditDialogOpen(true);
-  }
-
-  const containerVariants: Variants = {
-    hidden: {},
-    visible: { transition: { staggerChildren: 0.06 } },
-  };
-  const itemVariants: Variants = {
-    hidden: { opacity: 0, y: 12 },
-    visible: {
-      opacity: 1,
-      y: 0,
-      transition: { duration: 0.3, ease: [0.25, 0.1, 0.25, 1] },
-    },
-  };
-
-  return (
-    <>
-      {/* Photo Lightbox overlay */}
-      {lightbox && (
-        <PhotoLightbox
-          photos={lightbox.photos}
-          initialIndex={lightbox.index}
-          onClose={() => setLightbox(null)}
-        />
-      )}
-
-      {/* Edit dialog (controlled) */}
-      {editingEntry && (
-        <PlanItineraryDialog
-          editEntry={editingEntry}
-          onEdit={onEdit}
-          open={editDialogOpen}
-          onOpenChange={(o) => {
-            setEditDialogOpen(o);
-            if (!o) setEditingEntry(null);
-          }}
-        />
-      )}
-
-      {/* Add dialog (controlled) */}
-      <PlanItineraryDialog
-        onAdd={onAdd}
-        open={addDialogOpen}
-        onOpenChange={setAddDialogOpen}
-      />
-
-      <motion.div
-        initial={{ opacity: 0, y: 16 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.35, ease: "easeOut" }}
-        className="space-y-5"
-      >
-        {/* Header */}
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="h-9 w-9 rounded-lg bg-navy flex items-center justify-center shrink-0">
-              <Camera className="h-4.5 w-4.5 text-white" />
-            </div>
-            <div>
-              <h1 className="font-display font-bold text-lg text-foreground">
-                Itinerary
-              </h1>
-              <p className="text-xs font-body text-muted-foreground">
-                Your trip plan with photos
-              </p>
-            </div>
-            {entries.length > 0 && (
-              <Badge
-                variant="secondary"
-                className="font-body text-xs h-5 px-1.5"
-              >
-                {entries.length}
-              </Badge>
-            )}
-          </div>
-          <Button
-            onClick={() => setAddDialogOpen(true)}
-            className="font-body text-xs bg-navy hover:bg-navy-light text-white h-8 px-3 gap-1.5"
-            data-ocid="itinerary.add_entry.open_modal_button"
-          >
-            <Plus className="h-3.5 w-3.5" />
-            <span className="hidden sm:inline">Add Entry</span>
-            <span className="sm:hidden">Add</span>
-          </Button>
-        </div>
-
-        {/* Empty state */}
-        {entries.length === 0 ? (
-          <Card className="shadow-card" data-ocid="itinerary.empty_state">
-            <CardContent className="py-16 text-center">
-              <div className="h-16 w-16 rounded-2xl bg-muted flex items-center justify-center mx-auto mb-4">
-                <MapPin className="h-8 w-8 text-muted-foreground/40" />
-              </div>
-              <p className="font-display font-bold text-base text-foreground mb-1">
-                No itinerary yet
-              </p>
-              <p className="text-sm text-muted-foreground font-body mb-5">
-                Plan your activities, hotels, and upload photos for each day.
-              </p>
-              <Button
-                onClick={() => setAddDialogOpen(true)}
-                className="font-body bg-navy hover:bg-navy-light text-white"
-                data-ocid="itinerary.empty.open_modal_button"
-              >
-                <Plus className="h-4 w-4 mr-1.5" />
-                Plan Itinerary
-              </Button>
-            </CardContent>
-          </Card>
-        ) : (
-          <motion.div
-            variants={containerVariants}
-            initial="hidden"
-            animate="visible"
-            className="space-y-6"
-          >
-            {sortedDates.map((date) => (
-              <motion.div key={date} variants={itemVariants}>
-                {/* Date header */}
-                <div className="flex items-center gap-2 mb-3">
-                  <div className="h-7 w-7 rounded-md bg-navy flex items-center justify-center shrink-0">
-                    <Calendar className="h-3.5 w-3.5 text-white" />
-                  </div>
-                  <p className="font-display font-bold text-sm text-navy uppercase tracking-wider">
-                    {formatDateDisplay(date)}
-                  </p>
-                  <div className="flex-1 h-px bg-border" />
-                  <span className="text-xs font-body text-muted-foreground">
-                    {grouped[date].length} activit
-                    {grouped[date].length !== 1 ? "ies" : "y"}
-                  </span>
-                </div>
-
-                <div className="space-y-3 pl-2">
-                  {grouped[date]
-                    .sort((a, b) => a.time.localeCompare(b.time))
-                    .map((entry, idx) => {
-                      const photoCount = entry.photoUrls?.length ?? 0;
-                      return (
-                        <Card
-                          key={entry.id}
-                          className="shadow-card overflow-hidden"
-                          data-ocid={`itinerary.item.${idx + 1}`}
-                        >
-                          <CardContent className="p-0">
-                            {/* Entry header */}
-                            <div className="px-4 pt-3 pb-2">
-                              <div className="flex items-start justify-between gap-2">
-                                <div className="flex items-start gap-2 flex-1 min-w-0">
-                                  {entry.time && (
-                                    <span className="inline-flex items-center gap-0.5 text-xs font-body text-muted-foreground shrink-0 mt-0.5 bg-muted px-1.5 py-0.5 rounded">
-                                      <Clock className="h-2.5 w-2.5" />
-                                      {entry.time}
-                                    </span>
-                                  )}
-                                  <div className="min-w-0">
-                                    <p className="font-display font-bold text-sm text-foreground leading-tight">
-                                      {entry.activity}
-                                    </p>
-                                    {photoCount > 0 && (
-                                      <span className="inline-flex items-center gap-1 text-xs font-body text-muted-foreground mt-0.5">
-                                        <Camera className="h-2.5 w-2.5" />
-                                        {photoCount} photo
-                                        {photoCount !== 1 ? "s" : ""}
-                                      </span>
-                                    )}
-                                  </div>
-                                </div>
-                                {/* Edit & Delete */}
-                                <div className="flex items-center gap-1 shrink-0">
-                                  <button
-                                    type="button"
-                                    onClick={() => handleEditClick(entry)}
-                                    className="h-7 w-7 flex items-center justify-center rounded-md hover:bg-muted transition-colors text-muted-foreground hover:text-foreground"
-                                    title="Edit entry"
-                                    data-ocid={`itinerary.edit_button.${idx + 1}`}
-                                  >
-                                    <Pencil className="h-3.5 w-3.5" />
-                                  </button>
-                                  <button
-                                    type="button"
-                                    onClick={() => {
-                                      onDelete(entry.id);
-                                      toast.success("Entry removed");
-                                    }}
-                                    className="h-7 w-7 flex items-center justify-center rounded-md hover:bg-destructive/10 transition-colors text-muted-foreground hover:text-destructive"
-                                    title="Delete entry"
-                                    data-ocid={`itinerary.delete_button.${idx + 1}`}
-                                  >
-                                    <Trash2 className="h-3.5 w-3.5" />
-                                  </button>
-                                </div>
-                              </div>
-
-                              {/* Hotel info */}
-                              {(entry.hotelName || entry.hotelLocation) && (
-                                <div className="mt-2 space-y-1">
-                                  {entry.hotelName && (
-                                    <div className="flex items-center gap-1.5 text-xs font-body text-muted-foreground">
-                                      <Image className="h-3 w-3 shrink-0" />
-                                      <span className="font-medium text-foreground/80">
-                                        {entry.hotelName}
-                                      </span>
-                                    </div>
-                                  )}
-                                  {entry.hotelLocation && (
-                                    <a
-                                      href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(entry.hotelLocation)}`}
-                                      target="_blank"
-                                      rel="noopener noreferrer"
-                                      className="inline-flex items-center gap-1.5 text-xs font-body text-teal hover:underline"
-                                      data-ocid={`itinerary.map_marker.${idx + 1}`}
-                                    >
-                                      <MapPin className="h-3 w-3 shrink-0" />
-                                      <span className="truncate max-w-[200px]">
-                                        {entry.hotelLocation}
-                                      </span>
-                                    </a>
-                                  )}
-                                </div>
-                              )}
-
-                              {/* Details/notes */}
-                              {entry.details && (
-                                <p className="mt-2 text-xs font-body text-muted-foreground leading-relaxed">
-                                  {entry.details}
-                                </p>
-                              )}
-                            </div>
-
-                            {/* Photo grid */}
-                            {photoCount > 0 && (
-                              <>
-                                <Separator />
-                                <div className="p-3">
-                                  <div className="grid grid-cols-3 gap-1.5">
-                                    {(entry.photoUrls ?? []).map(
-                                      (url, photoIdx) => (
-                                        <button
-                                          type="button"
-                                          // biome-ignore lint/suspicious/noArrayIndexKey: stable index key
-                                          key={photoIdx}
-                                          onClick={() =>
-                                            setLightbox({
-                                              photos: entry.photoUrls ?? [],
-                                              index: photoIdx,
-                                            })
-                                          }
-                                          className="aspect-square rounded-md overflow-hidden hover:ring-2 hover:ring-teal transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                                          data-ocid={`itinerary.canvas_target.${idx + 1}`}
-                                          title="View photo"
-                                        >
-                                          <img
-                                            src={url}
-                                            alt={`Trip view ${photoIdx + 1}`}
-                                            className="w-full h-full object-cover"
-                                          />
-                                        </button>
-                                      ),
-                                    )}
-                                  </div>
-                                </div>
-                              </>
-                            )}
-                          </CardContent>
-                        </Card>
-                      );
-                    })}
-                </div>
-              </motion.div>
-            ))}
-          </motion.div>
-        )}
-
-        {/* Bottom Add Entry button */}
-        {entries.length > 0 && (
-          <div className="pt-2">
-            <Button
-              variant="outline"
-              className="w-full font-body border-navy/30 text-navy hover:bg-navy hover:text-white"
-              onClick={() => setAddDialogOpen(true)}
-              data-ocid="itinerary.bottom.open_modal_button"
-            >
-              <Plus className="h-4 w-4 mr-2" />
-              Add Another Entry
-            </Button>
-          </div>
-        )}
-      </motion.div>
-    </>
-  );
-}
-
 // ── Dashboard Tab ──────────────────────────────────────────────────────────────
 
 function DashboardTab({
@@ -1433,26 +408,19 @@ function DashboardTab({
   currency,
   onReset,
   isResetting,
-  itineraryEntries,
-  onAddItineraryEntry,
-  onDeleteItineraryEntry,
-  onEditItineraryEntry,
 }: {
   expenses: Expense[];
   currency: Currency;
   onReset: () => void;
   isResetting?: boolean;
-  itineraryEntries: ItineraryEntry[];
-  onAddItineraryEntry: (entry: ItineraryEntry) => void;
-  onDeleteItineraryEntry: (id: string) => void;
-  onEditItineraryEntry: (entry: ItineraryEntry) => void;
 }) {
   const [showResetConfirm, setShowResetConfirm] = useState(false);
 
+  const { members } = useTripContext();
   const totalSpend = expenses.reduce((sum, e) => sum + e.amount, 0);
-  const perPerson = totalSpend / MEMBERS.length;
-  const balances = computeBalances(expenses);
-  const settlements = simplifyDebts(balances);
+  const perPerson = totalSpend / (members.length || 1);
+  const balances = computeBalances(expenses, members);
+  const settlements = simplifyDebts(balances, members);
 
   const containerVariants: Variants = {
     hidden: {},
@@ -1468,271 +436,258 @@ function DashboardTab({
   };
 
   return (
-    <div className="flex flex-col md:flex-row gap-6 items-start">
-      {/* Left column: Itinerary Panel */}
-      <div className="w-full md:w-72 shrink-0">
-        <ItineraryPanel
-          entries={itineraryEntries}
-          onAdd={onAddItineraryEntry}
-          onDelete={onDeleteItineraryEntry}
-          onEdit={onEditItineraryEntry}
-        />
-      </div>
-
-      {/* Right column: Dashboard content */}
-      <div className="flex-1 min-w-0">
-        <motion.div
-          variants={containerVariants}
-          initial="hidden"
-          animate="visible"
-          className="space-y-6"
-        >
-          {/* Trip Header */}
-          <motion.div variants={itemVariants}>
-            <div className="relative overflow-hidden rounded-xl bg-navy text-white p-6">
-              {/* Background decoration */}
-              <div className="absolute inset-0 opacity-10">
-                <div className="absolute -top-8 -right-8 w-48 h-48 rounded-full bg-white" />
-                <div className="absolute -bottom-12 -left-4 w-40 h-40 rounded-full bg-white" />
+    <motion.div
+      variants={containerVariants}
+      initial="hidden"
+      animate="visible"
+      className="space-y-6"
+    >
+      {/* Trip Header */}
+      <motion.div variants={itemVariants}>
+        <div className="relative overflow-hidden rounded-xl bg-navy text-white p-6">
+          {/* Background decoration */}
+          <div className="absolute inset-0 opacity-10">
+            <div className="absolute -top-8 -right-8 w-48 h-48 rounded-full bg-white" />
+            <div className="absolute -bottom-12 -left-4 w-40 h-40 rounded-full bg-white" />
+          </div>
+          <div className="relative flex items-start justify-between gap-4">
+            <div>
+              <div className="flex items-center gap-2 mb-1">
+                <Mountain className="h-4 w-4 opacity-70" />
+                <span className="text-sm font-body opacity-70 tracking-wide uppercase">
+                  Trip Expense Tracker
+                </span>
               </div>
-              <div className="relative flex items-start justify-between gap-4">
-                <div>
-                  <div className="flex items-center gap-2 mb-1">
-                    <Mountain className="h-4 w-4 opacity-70" />
-                    <span className="text-sm font-body opacity-70 tracking-wide uppercase">
-                      Trip Expense Tracker
+              <h1 className="font-display text-2xl font-bold tracking-tight">
+                TRIP
+              </h1>
+              <p className="text-sm opacity-60 mt-1 font-body">
+                {members.length} members
+              </p>
+            </div>
+            <div className="text-right">
+              <p className="text-xs font-body opacity-60 uppercase tracking-wide mb-1">
+                Total Spend
+              </p>
+              <p className="font-display text-3xl font-bold amount-neutral text-white">
+                {formatCurrency(totalSpend, currency)}
+              </p>
+              <p className="text-xs opacity-60 mt-1">
+                {formatCurrency(perPerson, currency)} per person
+              </p>
+            </div>
+          </div>
+          <div className="relative mt-4 pt-4 border-t border-white/10 grid grid-cols-2 gap-4 sm:grid-cols-4">
+            {members.map((m) => (
+              <div key={m} className="text-center">
+                <p className="text-xs opacity-50 mb-1">{m}</p>
+                <p className="font-display font-semibold text-sm">
+                  {formatCurrency(
+                    expenses
+                      .filter((e) => e.paidBy === m)
+                      .reduce((s, e) => s + e.amount, 0),
+                    currency,
+                  )}
+                </p>
+              </div>
+            ))}
+          </div>
+        </div>
+      </motion.div>
+
+      {/* Stats Row */}
+      <motion.div
+        variants={itemVariants}
+        className="grid grid-cols-2 gap-3 sm:grid-cols-4"
+      >
+        {[
+          {
+            label: "Expenses",
+            value: expenses.length,
+            icon: <Receipt className="h-4 w-4" />,
+          },
+          {
+            label: "Per Person",
+            value: formatCurrency(perPerson, currency),
+            icon: <TrendingUp className="h-4 w-4" />,
+          },
+          {
+            label: "Settlements",
+            value: settlements.length,
+            icon: <ArrowRight className="h-4 w-4" />,
+          },
+          {
+            label: "Total Spend",
+            value: formatCurrency(totalSpend, currency),
+            icon: <TrendingUp className="h-4 w-4" />,
+          },
+        ].map((stat) => (
+          <Card key={stat.label} className="shadow-card">
+            <CardContent className="p-4">
+              <div className="flex items-center gap-2 text-muted-foreground mb-1">
+                {stat.icon}
+                <span className="text-xs font-body">{stat.label}</span>
+              </div>
+              <p className="font-display font-bold text-lg text-foreground">
+                {stat.value}
+              </p>
+            </CardContent>
+          </Card>
+        ))}
+      </motion.div>
+
+      {/* Balance Cards */}
+      <motion.div variants={itemVariants}>
+        <h2 className="font-display font-bold text-base text-foreground mb-3 flex items-center gap-2">
+          <span className="inline-block w-1.5 h-5 rounded-full bg-teal" />
+          Member Balances
+        </h2>
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+          {members.map((member) => {
+            const bal = Math.round(balances[member]);
+            const isPositive = bal >= 0;
+            return (
+              <Card
+                key={member}
+                className={`shadow-card border-0 ${isPositive ? "bg-success-light" : "bg-destructive/5"}`}
+              >
+                <CardContent className="p-4">
+                  <div className="flex items-center gap-2 mb-3">
+                    <MemberAvatar member={member} size="md" />
+                    <span className="font-display font-semibold text-sm text-foreground">
+                      {member}
                     </span>
                   </div>
-                  <h1 className="font-display text-2xl font-bold tracking-tight">
-                    TRIP
-                  </h1>
-                  <p className="text-sm opacity-60 mt-1 font-body">4 members</p>
-                </div>
-                <div className="text-right">
-                  <p className="text-xs font-body opacity-60 uppercase tracking-wide mb-1">
-                    Total Spend
+                  <p
+                    className={`font-display font-bold text-xl ${isPositive ? "amount-positive" : "amount-negative"}`}
+                  >
+                    {isPositive ? "+" : "-"}
+                    {formatCurrency(bal, currency)}
                   </p>
-                  <p className="font-display text-3xl font-bold amount-neutral text-white">
-                    {formatCurrency(totalSpend, currency)}
-                  </p>
-                  <p className="text-xs opacity-60 mt-1">
-                    {formatCurrency(perPerson, currency)} per person
-                  </p>
-                </div>
-              </div>
-              <div className="relative mt-4 pt-4 border-t border-white/10 grid grid-cols-2 gap-4 sm:grid-cols-4">
-                {MEMBERS.map((m) => (
-                  <div key={m} className="text-center">
-                    <p className="text-xs opacity-50 mb-1">{m}</p>
-                    <p className="font-display font-semibold text-sm">
-                      {formatCurrency(
-                        expenses
-                          .filter((e) => e.paidBy === m)
-                          .reduce((s, e) => s + e.amount, 0),
-                        currency,
-                      )}
-                    </p>
-                  </div>
-                ))}
-              </div>
-            </div>
-          </motion.div>
-
-          {/* Stats Row */}
-          <motion.div
-            variants={itemVariants}
-            className="grid grid-cols-2 gap-3 sm:grid-cols-4"
-          >
-            {[
-              {
-                label: "Expenses",
-                value: expenses.length,
-                icon: <Receipt className="h-4 w-4" />,
-              },
-              {
-                label: "Per Person",
-                value: formatCurrency(perPerson, currency),
-                icon: <TrendingUp className="h-4 w-4" />,
-              },
-              {
-                label: "Settlements",
-                value: settlements.length,
-                icon: <ArrowRight className="h-4 w-4" />,
-              },
-              {
-                label: "Total Spend",
-                value: formatCurrency(totalSpend, currency),
-                icon: <TrendingUp className="h-4 w-4" />,
-              },
-            ].map((stat) => (
-              <Card key={stat.label} className="shadow-card">
-                <CardContent className="p-4">
-                  <div className="flex items-center gap-2 text-muted-foreground mb-1">
-                    {stat.icon}
-                    <span className="text-xs font-body">{stat.label}</span>
-                  </div>
-                  <p className="font-display font-bold text-lg text-foreground">
-                    {stat.value}
+                  <p
+                    className={`text-xs mt-1 font-body ${isPositive ? "text-success" : "text-destructive"}`}
+                  >
+                    {bal === 0
+                      ? "All settled"
+                      : isPositive
+                        ? "gets back"
+                        : "owes"}
                   </p>
                 </CardContent>
               </Card>
+            );
+          })}
+        </div>
+      </motion.div>
+
+      {/* Quick Settlements Summary */}
+      <motion.div variants={itemVariants}>
+        <h2 className="font-display font-bold text-base text-foreground mb-3 flex items-center gap-2">
+          <span className="inline-block w-1.5 h-5 rounded-full bg-teal" />
+          Settlement Summary
+        </h2>
+        {settlements.length === 0 ? (
+          <Card className="shadow-card">
+            <CardContent className="p-6 text-center">
+              <CheckCircle2 className="h-8 w-8 text-success mx-auto mb-2" />
+              <p className="font-display font-semibold text-foreground">
+                All Settled!
+              </p>
+              <p className="text-sm text-muted-foreground font-body">
+                Everyone is even.
+              </p>
+            </CardContent>
+          </Card>
+        ) : (
+          <div className="space-y-2">
+            {settlements.map((s) => (
+              <div
+                key={`${s.from}-${s.to}`}
+                className="flex items-center justify-between bg-card rounded-lg px-4 py-3 shadow-xs border border-border"
+              >
+                <div className="flex items-center gap-2">
+                  <MemberAvatar member={s.from} />
+                  <span className="font-body text-sm text-foreground">
+                    {s.from}
+                  </span>
+                </div>
+                <div className="flex items-center gap-3">
+                  <ArrowRight className="h-4 w-4 text-teal" />
+                  <span className="font-display font-bold amount-neutral text-foreground">
+                    {formatCurrency(s.amount, currency)}
+                  </span>
+                  <ArrowRight className="h-4 w-4 text-teal" />
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="font-body text-sm text-foreground">
+                    {s.to}
+                  </span>
+                  <MemberAvatar member={s.to} />
+                </div>
+              </div>
             ))}
-          </motion.div>
+          </div>
+        )}
+      </motion.div>
 
-          {/* Balance Cards */}
-          <motion.div variants={itemVariants}>
-            <h2 className="font-display font-bold text-base text-foreground mb-3 flex items-center gap-2">
-              <span className="inline-block w-1.5 h-5 rounded-full bg-teal" />
-              Member Balances
-            </h2>
-            <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-              {MEMBERS.map((member) => {
-                const bal = Math.round(balances[member]);
-                const isPositive = bal >= 0;
-                return (
-                  <Card
-                    key={member}
-                    className={`shadow-card border-0 ${isPositive ? "bg-success-light" : "bg-destructive/5"}`}
-                  >
-                    <CardContent className="p-4">
-                      <div className="flex items-center gap-2 mb-3">
-                        <MemberAvatar member={member} size="md" />
-                        <span className="font-display font-semibold text-sm text-foreground">
-                          {member}
-                        </span>
-                      </div>
-                      <p
-                        className={`font-display font-bold text-xl ${isPositive ? "amount-positive" : "amount-negative"}`}
-                      >
-                        {isPositive ? "+" : "-"}
-                        {formatCurrency(bal, currency)}
-                      </p>
-                      <p
-                        className={`text-xs mt-1 font-body ${isPositive ? "text-success" : "text-destructive"}`}
-                      >
-                        {bal === 0
-                          ? "All settled"
-                          : isPositive
-                            ? "gets back"
-                            : "owes"}
-                      </p>
-                    </CardContent>
-                  </Card>
-                );
-              })}
-            </div>
-          </motion.div>
+      {/* Export Data */}
+      <motion.div variants={itemVariants}>
+        <div className="pt-2">
+          <ExportButton
+            expenses={expenses}
+            settlements={settlements}
+            currency={currency}
+          />
+        </div>
+      </motion.div>
 
-          {/* Quick Settlements Summary */}
-          <motion.div variants={itemVariants}>
-            <h2 className="font-display font-bold text-base text-foreground mb-3 flex items-center gap-2">
-              <span className="inline-block w-1.5 h-5 rounded-full bg-teal" />
-              Settlement Summary
-            </h2>
-            {settlements.length === 0 ? (
-              <Card className="shadow-card">
-                <CardContent className="p-6 text-center">
-                  <CheckCircle2 className="h-8 w-8 text-success mx-auto mb-2" />
-                  <p className="font-display font-semibold text-foreground">
-                    All Settled!
-                  </p>
-                  <p className="text-sm text-muted-foreground font-body">
-                    Everyone is even.
-                  </p>
-                </CardContent>
-              </Card>
-            ) : (
-              <div className="space-y-2">
-                {settlements.map((s) => (
-                  <div
-                    key={`${s.from}-${s.to}`}
-                    className="flex items-center justify-between bg-card rounded-lg px-4 py-3 shadow-xs border border-border"
-                  >
-                    <div className="flex items-center gap-2">
-                      <MemberAvatar member={s.from} />
-                      <span className="font-body text-sm text-foreground">
-                        {s.from}
-                      </span>
-                    </div>
-                    <div className="flex items-center gap-3">
-                      <ArrowRight className="h-4 w-4 text-teal" />
-                      <span className="font-display font-bold amount-neutral text-foreground">
-                        {formatCurrency(s.amount, currency)}
-                      </span>
-                      <ArrowRight className="h-4 w-4 text-teal" />
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <span className="font-body text-sm text-foreground">
-                        {s.to}
-                      </span>
-                      <MemberAvatar member={s.to} />
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </motion.div>
-
-          {/* Export Data */}
-          <motion.div variants={itemVariants}>
-            <div className="pt-2">
-              <ExportButton
-                expenses={expenses}
-                settlements={settlements}
-                currency={currency}
-              />
-            </div>
-          </motion.div>
-
-          {/* Reset / New Settlement */}
-          <motion.div variants={itemVariants}>
-            <div className="pt-2">
-              {!showResetConfirm ? (
+      {/* Reset / New Settlement */}
+      <motion.div variants={itemVariants}>
+        <div className="pt-2">
+          {!showResetConfirm ? (
+            <Button
+              variant="outline"
+              className="w-full border-destructive text-destructive hover:bg-destructive hover:text-white font-body"
+              onClick={() => setShowResetConfirm(true)}
+            >
+              <RotateCcw className="h-4 w-4 mr-2" />
+              Reset / New Settlement
+            </Button>
+          ) : (
+            <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-4 space-y-3">
+              <p className="text-sm font-body text-foreground text-center">
+                This will delete all <strong>{expenses.length}</strong>{" "}
+                expense(s) and start fresh. Are you sure?
+              </p>
+              <div className="flex gap-2">
                 <Button
                   variant="outline"
-                  className="w-full border-destructive text-destructive hover:bg-destructive hover:text-white font-body"
-                  onClick={() => setShowResetConfirm(true)}
+                  className="flex-1 font-body"
+                  onClick={() => setShowResetConfirm(false)}
+                  disabled={isResetting}
                 >
-                  <RotateCcw className="h-4 w-4 mr-2" />
-                  Reset / New Settlement
+                  Cancel
                 </Button>
-              ) : (
-                <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-4 space-y-3">
-                  <p className="text-sm font-body text-foreground text-center">
-                    This will delete all <strong>{expenses.length}</strong>{" "}
-                    expense(s) and start fresh. Are you sure?
-                  </p>
-                  <div className="flex gap-2">
-                    <Button
-                      variant="outline"
-                      className="flex-1 font-body"
-                      onClick={() => setShowResetConfirm(false)}
-                      disabled={isResetting}
-                    >
-                      Cancel
-                    </Button>
-                    <Button
-                      variant="destructive"
-                      className="flex-1 font-body"
-                      onClick={() => {
-                        onReset();
-                        setShowResetConfirm(false);
-                      }}
-                      disabled={isResetting}
-                    >
-                      {isResetting ? (
-                        <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                      ) : null}
-                      {isResetting ? "Resetting..." : "Yes, Reset"}
-                    </Button>
-                  </div>
-                </div>
-              )}
+                <Button
+                  variant="destructive"
+                  className="flex-1 font-body"
+                  onClick={() => {
+                    onReset();
+                    setShowResetConfirm(false);
+                  }}
+                  disabled={isResetting}
+                >
+                  {isResetting ? (
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  ) : null}
+                  {isResetting ? "Resetting..." : "Yes, Reset"}
+                </Button>
+              </div>
             </div>
-          </motion.div>
-        </motion.div>
-      </div>
-    </div>
+          )}
+        </div>
+      </motion.div>
+    </motion.div>
   );
 }
 
@@ -1746,7 +701,7 @@ const DESCRIPTION_OPTIONS = [
   "Hotel",
   "Others",
 ];
-const PLACE_OPTIONS = ["Bangkok", "Phu Quoc", "Phuket", "Phi Phi Island"];
+// PLACE_OPTIONS now comes from TripContext
 
 // ── Persistent last-used values ────────────────────────────────────────────────
 
@@ -1770,6 +725,7 @@ function AddExpenseTab({
   currency: Currency;
   isAdding?: boolean;
 }) {
+  const { members, places } = useTripContext();
   const today = new Date().toISOString().split("T")[0];
   const currencyInfo = CURRENCIES.find((c) => c.value === currency)!;
 
@@ -1781,7 +737,7 @@ function AddExpenseTab({
   const [errors, setErrors] = useState<Record<string, string>>({});
 
   const parsedAmount = Number.parseFloat(amount) || 0;
-  const perPerson = parsedAmount / MEMBERS.length;
+  const perPerson = parsedAmount / (members.length || 1);
 
   function validate() {
     const e: Record<string, string> = {};
@@ -1832,7 +788,7 @@ function AddExpenseTab({
                   Add New Expense
                 </CardTitle>
                 <p className="text-xs text-muted-foreground font-body">
-                  Split equally among all 4 members
+                  Split equally among all {members.length} members
                 </p>
               </div>
             </div>
@@ -1882,7 +838,7 @@ function AddExpenseTab({
                       <SelectValue placeholder="Select" />
                     </SelectTrigger>
                     <SelectContent>
-                      {PLACE_OPTIONS.map((opt) => (
+                      {places.map((opt) => (
                         <SelectItem key={opt} value={opt} className="font-body">
                           {opt}
                         </SelectItem>
@@ -1962,7 +918,7 @@ function AddExpenseTab({
                     <SelectValue placeholder="Select who paid" />
                   </SelectTrigger>
                   <SelectContent>
-                    {MEMBERS.map((m) => (
+                    {members.map((m) => (
                       <SelectItem key={m} value={m} className="font-body">
                         <div className="flex items-center gap-2">
                           <MemberAvatar member={m} />
@@ -1994,7 +950,7 @@ function AddExpenseTab({
                         Split Preview
                       </p>
                       <div className="grid grid-cols-4 gap-2">
-                        {MEMBERS.map((m) => (
+                        {members.map((m) => (
                           <div key={m} className="text-center">
                             <MemberAvatar member={m} size="sm" />
                             <p className="text-xs font-body text-accent-foreground mt-1">
@@ -2043,8 +999,9 @@ function ExpenseListTab({
   const sorted = [...expenses].sort(
     (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime(),
   );
+  const { members } = useTripContext();
   const total = expenses.reduce((s, e) => s + e.amount, 0);
-  const perPersonTotal = total / MEMBERS.length;
+  const perPersonTotal = total / (members.length || 1);
 
   return (
     <motion.div
@@ -2134,7 +1091,10 @@ function ExpenseListTab({
                       </TableCell>
                       <TableCell className="text-right pr-5">
                         <span className="amount-neutral text-sm text-muted-foreground">
-                          {formatCurrency(expense.amount / 4, currency)}
+                          {formatCurrency(
+                            expense.amount / (members.length || 1),
+                            currency,
+                          )}
                         </span>
                       </TableCell>
                     </TableRow>
@@ -2214,7 +1174,11 @@ function ExpenseListTab({
                         {formatCurrency(expense.amount, currency)}
                       </p>
                       <p className="text-xs text-muted-foreground font-body mt-0.5">
-                        {formatCurrency(expense.amount / 4, currency)}/person
+                        {formatCurrency(
+                          expense.amount / (members.length || 1),
+                          currency,
+                        )}
+                        /person
                       </p>
                     </div>
                   </div>
@@ -2274,8 +1238,9 @@ function SettlementsTab({
 }) {
   const [showResetConfirm, setShowResetConfirm] = useState(false);
 
-  const balances = computeBalances(expenses);
-  const settlements = simplifyDebts(balances);
+  const { members } = useTripContext();
+  const balances = computeBalances(expenses, members);
+  const settlements = simplifyDebts(balances, members);
 
   const containerVariants: Variants = {
     hidden: {},
@@ -2321,7 +1286,7 @@ function SettlementsTab({
           Net Balances
         </h2>
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-          {MEMBERS.map((member) => {
+          {members.map((member) => {
             const bal = Math.round(balances[member]);
             const isPositive = bal >= 0;
             return (
@@ -2448,7 +1413,7 @@ function SettlementsTab({
         </h2>
         <Card className="shadow-card">
           <CardContent className="p-4 space-y-3">
-            {MEMBERS.map((member) => {
+            {members.map((member) => {
               const paid = expenses
                 .filter((e) => e.paidBy === member)
                 .reduce((s, e) => s + e.amount, 0);
@@ -2547,6 +1512,191 @@ function SettlementsTab({
   );
 }
 
+// ── Settings Modal ────────────────────────────────────────────────────────────
+
+function SettingsModal({
+  open,
+  onClose,
+  initialMembers,
+  initialPlaces,
+  onSave,
+}: {
+  open: boolean;
+  onClose: () => void;
+  initialMembers: string[];
+  initialPlaces: string[];
+  onSave: (members: string[], places: string[]) => void;
+}) {
+  const [editMembers, setEditMembers] = useState<string[]>([]);
+  const [editPlaces, setEditPlaces] = useState<string[]>([]);
+
+  // Sync from props when opening
+  useEffect(() => {
+    if (open) {
+      setEditMembers([...initialMembers]);
+      setEditPlaces([...initialPlaces]);
+    }
+  }, [open, initialMembers, initialPlaces]);
+
+  function handleSave() {
+    const cleanMembers = editMembers.map((m) => m.trim()).filter(Boolean);
+    const cleanPlaces = editPlaces.map((p) => p.trim()).filter(Boolean);
+    if (cleanMembers.length === 0) {
+      toast.error("At least one member is required.");
+      return;
+    }
+    if (cleanPlaces.length === 0) {
+      toast.error("At least one place is required.");
+      return;
+    }
+    onSave(cleanMembers, cleanPlaces);
+    onClose();
+  }
+
+  return (
+    <Dialog
+      open={open}
+      onOpenChange={(v) => {
+        if (!v) onClose();
+      }}
+    >
+      <DialogContent
+        className="max-w-md max-h-[85vh] overflow-y-auto"
+        data-ocid="settings.modal"
+      >
+        <DialogHeader>
+          <DialogTitle className="font-display text-base flex items-center gap-2">
+            <Settings className="h-4 w-4 text-teal" />
+            Trip Settings
+          </DialogTitle>
+        </DialogHeader>
+
+        <div className="space-y-6 py-2">
+          {/* Members Section */}
+          <div>
+            <h3 className="font-display font-semibold text-sm text-foreground mb-3 flex items-center gap-1.5">
+              <User className="h-4 w-4 text-muted-foreground" />
+              Members ({editMembers.length})
+            </h3>
+            <div className="space-y-2">
+              {editMembers.map((member, i) => (
+                <div
+                  key={`m-${i}-${member}`}
+                  className="flex items-center gap-2"
+                >
+                  <Input
+                    value={member}
+                    onChange={(e) => {
+                      const updated = [...editMembers];
+                      updated[i] = e.target.value;
+                      setEditMembers(updated);
+                    }}
+                    placeholder="Member name"
+                    className="font-body text-sm h-9"
+                    data-ocid={`settings.member.input.${i + 1}`}
+                  />
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-9 w-9 p-0 text-destructive hover:bg-destructive/10 shrink-0"
+                    disabled={editMembers.length <= 1}
+                    onClick={() =>
+                      setEditMembers(editMembers.filter((_, idx) => idx !== i))
+                    }
+                    data-ocid={`settings.member.delete_button.${i + 1}`}
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </Button>
+                </div>
+              ))}
+            </div>
+            <Button
+              variant="outline"
+              size="sm"
+              className="mt-2 font-body text-xs border-dashed w-full"
+              onClick={() => setEditMembers([...editMembers, ""])}
+              data-ocid="settings.add_member.button"
+            >
+              <Plus className="h-3.5 w-3.5 mr-1" />
+              Add Member
+            </Button>
+          </div>
+
+          <Separator />
+
+          {/* Places Section */}
+          <div>
+            <h3 className="font-display font-semibold text-sm text-foreground mb-3 flex items-center gap-1.5">
+              <MapPin className="h-4 w-4 text-muted-foreground" />
+              Places ({editPlaces.length})
+            </h3>
+            <div className="space-y-2">
+              {editPlaces.map((place, i) => (
+                <div
+                  key={`p-${i}-${place}`}
+                  className="flex items-center gap-2"
+                >
+                  <Input
+                    value={place}
+                    onChange={(e) => {
+                      const updated = [...editPlaces];
+                      updated[i] = e.target.value;
+                      setEditPlaces(updated);
+                    }}
+                    placeholder="Place name"
+                    className="font-body text-sm h-9"
+                    data-ocid={`settings.place.input.${i + 1}`}
+                  />
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-9 w-9 p-0 text-destructive hover:bg-destructive/10 shrink-0"
+                    disabled={editPlaces.length <= 1}
+                    onClick={() =>
+                      setEditPlaces(editPlaces.filter((_, idx) => idx !== i))
+                    }
+                    data-ocid={`settings.place.delete_button.${i + 1}`}
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </Button>
+                </div>
+              ))}
+            </div>
+            <Button
+              variant="outline"
+              size="sm"
+              className="mt-2 font-body text-xs border-dashed w-full"
+              onClick={() => setEditPlaces([...editPlaces, ""])}
+              data-ocid="settings.add_place.button"
+            >
+              <Plus className="h-3.5 w-3.5 mr-1" />
+              Add Place
+            </Button>
+          </div>
+        </div>
+
+        <DialogFooter className="gap-2">
+          <Button
+            variant="outline"
+            className="font-body"
+            onClick={onClose}
+            data-ocid="settings.cancel_button"
+          >
+            Cancel
+          </Button>
+          <Button
+            className="font-body bg-navy hover:bg-navy-light text-white"
+            onClick={handleSave}
+            data-ocid="settings.save_button"
+          >
+            Save Changes
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 // ── Login Screen ───────────────────────────────────────────────────────────────
 
 function LoginScreen() {
@@ -2578,12 +1728,12 @@ function LoginScreen() {
           <CardContent className="p-6 space-y-5">
             {/* Members preview */}
             <div className="flex items-center justify-center gap-2">
-              {MEMBERS.map((m) => (
+              {DEFAULT_MEMBERS.map((m) => (
                 <MemberAvatar key={m} member={m} size="md" />
               ))}
             </div>
             <p className="text-center text-xs text-muted-foreground font-body">
-              Manoj · Ramesh · Abhijit · Pradeep
+              {DEFAULT_MEMBERS.join(" · ")}
             </p>
 
             <Separator />
@@ -2659,6 +1809,41 @@ export default function App() {
   const queryClient = useQueryClient();
   const [activeTab, setActiveTab] = useState<Tab>("dashboard");
   const [currency, setCurrency] = useState<Currency>("INR");
+  const [settingsOpen, setSettingsOpen] = useState(false);
+
+  // Dynamic members and places (localStorage-backed)
+  const [members, setMembers] = useState<string[]>(() => {
+    try {
+      const raw = localStorage.getItem("trip_members");
+      const parsed = raw ? JSON.parse(raw) : null;
+      return Array.isArray(parsed) && parsed.length > 0
+        ? parsed
+        : DEFAULT_MEMBERS;
+    } catch {
+      return DEFAULT_MEMBERS;
+    }
+  });
+  const [places, setPlaces] = useState<string[]>(() => {
+    try {
+      const raw = localStorage.getItem("trip_places");
+      const parsed = raw ? JSON.parse(raw) : null;
+      return Array.isArray(parsed) && parsed.length > 0
+        ? parsed
+        : DEFAULT_PLACES;
+    } catch {
+      return DEFAULT_PLACES;
+    }
+  });
+
+  function handleSettingsSave(newMembers: string[], newPlaces: string[]) {
+    setMembers(newMembers);
+    setPlaces(newPlaces);
+    try {
+      localStorage.setItem("trip_members", JSON.stringify(newMembers));
+      localStorage.setItem("trip_places", JSON.stringify(newPlaces));
+    } catch {}
+    toast.success("Settings saved!");
+  }
 
   // Registration promise -- kicked off once when actor is ready, awaited before every backend call
   const registrationRef = useRef<Promise<void> | null>(null);
@@ -2677,53 +1862,40 @@ export default function App() {
       });
   }, [actor]);
 
-  // ── Itinerary state (localStorage, frontend-only) ──────────────────────────
-  const [itineraryEntries, setItineraryEntries] = useState<ItineraryEntry[]>(
-    () => {
-      try {
-        const stored = localStorage.getItem(ITINERARY_STORAGE_KEY);
-        return stored ? (JSON.parse(stored) as ItineraryEntry[]) : [];
-      } catch {
-        return [];
-      }
-    },
-  );
-
-  useEffect(() => {
-    try {
-      localStorage.setItem(
-        ITINERARY_STORAGE_KEY,
-        JSON.stringify(itineraryEntries),
-      );
-    } catch {
-      // localStorage might not be available
-    }
-  }, [itineraryEntries]);
-
-  function handleAddItineraryEntry(entry: ItineraryEntry) {
-    setItineraryEntries((prev) => [...prev, entry]);
-  }
-
-  function handleDeleteItineraryEntry(id: string) {
-    setItineraryEntries((prev) => prev.filter((e) => e.id !== id));
-  }
-
-  function handleEditItineraryEntry(updated: ItineraryEntry) {
-    setItineraryEntries((prev) =>
-      prev.map((e) => (e.id === updated.id ? updated : e)),
-    );
-  }
-
   // ── Fetch expenses from backend ────────────────────────────────────────────
+  // ── Offline cache helpers ──────────────────────────────────────────────────
+  const CACHE_KEY = "trip_expenses_cache";
+
+  function loadCachedExpenses() {
+    try {
+      const raw = localStorage.getItem(CACHE_KEY);
+      return raw ? JSON.parse(raw) : undefined;
+    } catch {
+      return undefined;
+    }
+  }
+
+  function saveCachedExpenses(data: unknown) {
+    try {
+      localStorage.setItem(CACHE_KEY, JSON.stringify(data));
+    } catch {}
+  }
+
   const { data: rawExpenses, isLoading: isLoadingExpenses } = useQuery({
     queryKey: ["expenses"],
     queryFn: async () => {
       if (!actor) return [];
       // Wait for registration to complete before fetching
       if (registrationRef.current) await registrationRef.current;
-      return actor.getExpenses();
+      const result = await actor.getExpenses();
+      saveCachedExpenses(result);
+      return result;
     },
     enabled: !!actor && !isActorFetching,
+    initialData: loadCachedExpenses,
+    staleTime: 30_000, // Consider data fresh for 30s — avoid redundant refetches
+    gcTime: 5 * 60_000, // Keep in memory for 5 minutes
+    refetchOnWindowFocus: false,
   });
 
   // Map backend Expense (bigint id) → local Expense (string id)
@@ -2759,7 +1931,7 @@ export default function App() {
     onSuccess: (_data, variables) => {
       queryClient.invalidateQueries({ queryKey: ["expenses"] });
       toast.success("Expense added successfully!", {
-        description: `${variables.description || "Expense"} — ${formatCurrency(variables.amount, currency)} split among 4 members`,
+        description: `${variables.description || "Expense"} — ${formatCurrency(variables.amount, currency)} split among ${members.length} members`,
       });
       setActiveTab("list");
     },
@@ -2777,6 +1949,9 @@ export default function App() {
       return actor.resetExpenses();
     },
     onSuccess: () => {
+      try {
+        localStorage.removeItem("trip_expenses_cache");
+      } catch {}
       queryClient.invalidateQueries({ queryKey: ["expenses"] });
       toast.success("All expenses cleared. Starting fresh!");
     },
@@ -2843,199 +2018,206 @@ export default function App() {
   const isLoadingData = isActorFetching || isLoadingExpenses;
 
   return (
-    <div className="min-h-screen bg-background flex flex-col">
-      <Toaster position="top-right" />
+    <TripContext.Provider value={{ members, places }}>
+      <div className="min-h-screen bg-background flex flex-col">
+        <Toaster position="top-right" />
 
-      {/* App Header */}
-      <header className="bg-navy text-white sticky top-0 z-40 shadow-md">
-        <div className="max-w-5xl mx-auto px-4">
-          <div className="flex items-center justify-between h-14">
-            <div className="flex items-center gap-2.5">
-              <div className="h-8 w-8 rounded-lg bg-teal flex items-center justify-center">
-                <Wallet className="h-4 w-4 text-white" />
+        <SettingsModal
+          open={settingsOpen}
+          onClose={() => setSettingsOpen(false)}
+          initialMembers={members}
+          initialPlaces={places}
+          onSave={handleSettingsSave}
+        />
+
+        {/* App Header */}
+        <header className="bg-navy text-white sticky top-0 z-40 shadow-md">
+          <div className="max-w-5xl mx-auto px-4">
+            <div className="flex items-center justify-between h-14">
+              <div className="flex items-center gap-2.5">
+                <div className="h-8 w-8 rounded-lg bg-teal flex items-center justify-center">
+                  <Wallet className="h-4 w-4 text-white" />
+                </div>
+                <div>
+                  <p className="font-display font-bold text-sm leading-tight">
+                    Trip Splitter
+                  </p>
+                  <p className="text-xs opacity-50 leading-tight font-body">
+                    TRIP
+                  </p>
+                </div>
               </div>
-              <div>
-                <p className="font-display font-bold text-sm leading-tight">
-                  Trip Splitter
-                </p>
-                <p className="text-xs opacity-50 leading-tight font-body">
-                  TRIP
-                </p>
-              </div>
-            </div>
-            <div className="flex items-center gap-2">
-              {/* Synced indicator */}
-              <div className="hidden sm:flex items-center gap-1 text-white/60 text-xs font-body">
-                <div className="h-1.5 w-1.5 rounded-full bg-teal animate-pulse" />
-                <span className="hidden md:inline">{shortPrincipal}</span>
-              </div>
+              <div className="flex items-center gap-2">
+                {/* Synced indicator */}
+                <div className="hidden sm:flex items-center gap-1 text-white/60 text-xs font-body">
+                  <div className="h-1.5 w-1.5 rounded-full bg-teal animate-pulse" />
+                  <span className="hidden md:inline">{shortPrincipal}</span>
+                </div>
 
-              <Select
-                value={currency}
-                onValueChange={(v) => setCurrency(v as Currency)}
-              >
-                <SelectTrigger className="h-8 w-[130px] text-xs bg-white/10 border-white/20 text-white font-body">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {CURRENCIES.map((c) => (
-                    <SelectItem
-                      key={c.value}
-                      value={c.value}
-                      className="text-xs font-body"
-                    >
-                      {c.label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-
-              <Button
-                variant="ghost"
-                size="sm"
-                className="h-8 w-8 p-0 text-white hover:bg-white/10 hover:text-white"
-                onClick={handleShare}
-                title="Share app"
-              >
-                <Share2 className="h-4 w-4" />
-              </Button>
-
-              <Button
-                variant="ghost"
-                size="sm"
-                className="h-8 px-2 text-white/70 hover:bg-white/10 hover:text-white font-body text-xs gap-1"
-                onClick={clear}
-                title="Logout"
-              >
-                <LogOut className="h-3.5 w-3.5" />
-                <span className="hidden sm:inline">Logout</span>
-              </Button>
-
-              <div className="hidden sm:flex items-center gap-1">
-                {MEMBERS.map((m) => (
-                  <MemberAvatar key={m} member={m} size="sm" />
-                ))}
-              </div>
-            </div>
-          </div>
-        </div>
-      </header>
-
-      {/* Tab Navigation */}
-      <nav className="bg-card border-b border-border sticky top-14 z-30 shadow-xs">
-        <div className="max-w-5xl mx-auto px-4">
-          <div className="flex overflow-x-auto scrollbar-hide">
-            {TABS.map((tab) => {
-              const isActive = activeTab === tab.id;
-              return (
-                <button
-                  type="button"
-                  key={tab.id}
-                  onClick={() => setActiveTab(tab.id)}
-                  className={`flex items-center gap-1.5 px-4 py-3 text-sm font-body font-medium whitespace-nowrap transition-colors border-b-2 -mb-px focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
-                    isActive
-                      ? "border-teal text-foreground"
-                      : "border-transparent text-muted-foreground hover:text-foreground hover:border-border"
-                  }`}
+                <Select
+                  value={currency}
+                  onValueChange={(v) => setCurrency(v as Currency)}
                 >
-                  {tab.icon}
-                  <span className="hidden sm:inline">{tab.label}</span>
-                  <span className="sm:hidden text-xs">
-                    {tab.label.split(" ")[0]}
-                  </span>
-                </button>
-              );
-            })}
+                  <SelectTrigger className="h-8 w-[130px] text-xs bg-white/10 border-white/20 text-white font-body">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {CURRENCIES.map((c) => (
+                      <SelectItem
+                        key={c.value}
+                        value={c.value}
+                        className="text-xs font-body"
+                      >
+                        {c.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-8 w-8 p-0 text-white hover:bg-white/10 hover:text-white"
+                  onClick={() => setSettingsOpen(true)}
+                  title="Settings"
+                  data-ocid="settings.open_modal_button"
+                >
+                  <Settings className="h-4 w-4" />
+                </Button>
+
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-8 w-8 p-0 text-white hover:bg-white/10 hover:text-white"
+                  onClick={handleShare}
+                  title="Share app"
+                >
+                  <Share2 className="h-4 w-4" />
+                </Button>
+
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-8 px-2 text-white/70 hover:bg-white/10 hover:text-white font-body text-xs gap-1"
+                  onClick={clear}
+                  title="Logout"
+                >
+                  <LogOut className="h-3.5 w-3.5" />
+                  <span className="hidden sm:inline">Logout</span>
+                </Button>
+
+                <div className="hidden sm:flex items-center gap-1">
+                  {members.map((m) => (
+                    <MemberAvatar key={m} member={m} size="sm" />
+                  ))}
+                </div>
+              </div>
+            </div>
           </div>
-        </div>
-      </nav>
+        </header>
 
-      {/* Main Content */}
-      <main className="flex-1">
-        <div className="max-w-5xl mx-auto px-4 py-6">
-          {isLoadingData ? (
-            <DashboardSkeleton />
-          ) : (
-            <AnimatePresence mode="wait">
-              {activeTab === "dashboard" && (
-                <motion.div key="dashboard">
-                  <DashboardTab
-                    expenses={expenses}
-                    currency={currency}
-                    onReset={() => resetMutation.mutate()}
-                    isResetting={resetMutation.isPending}
-                    itineraryEntries={itineraryEntries}
-                    onAddItineraryEntry={handleAddItineraryEntry}
-                    onDeleteItineraryEntry={handleDeleteItineraryEntry}
-                    onEditItineraryEntry={handleEditItineraryEntry}
-                  />
-                </motion.div>
-              )}
-              {activeTab === "add" && (
-                <motion.div key="add">
-                  <AddExpenseTab
-                    onAdd={(date, description, location, amount, paidBy) =>
-                      addMutation
-                        .mutateAsync({
-                          date,
-                          description,
-                          location,
-                          amount,
-                          paidBy,
-                        })
-                        .then(() => {})
-                    }
-                    currency={currency}
-                    isAdding={addMutation.isPending}
-                  />
-                </motion.div>
-              )}
-              {activeTab === "list" && (
-                <motion.div key="list">
-                  <ExpenseListTab expenses={expenses} currency={currency} />
-                </motion.div>
-              )}
-              {activeTab === "settlements" && (
-                <motion.div key="settlements">
-                  <SettlementsTab
-                    expenses={expenses}
-                    currency={currency}
-                    onReset={() => resetMutation.mutate()}
-                    isResetting={resetMutation.isPending}
-                  />
-                </motion.div>
-              )}
-              {activeTab === "itinerary" && (
-                <motion.div key="itinerary">
-                  <ItineraryTab
-                    entries={itineraryEntries}
-                    onAdd={handleAddItineraryEntry}
-                    onDelete={handleDeleteItineraryEntry}
-                    onEdit={handleEditItineraryEntry}
-                  />
-                </motion.div>
-              )}
-            </AnimatePresence>
-          )}
-        </div>
-      </main>
+        {/* Tab Navigation */}
+        <nav className="bg-card border-b border-border sticky top-14 z-30 shadow-xs">
+          <div className="max-w-5xl mx-auto px-4">
+            <div className="flex overflow-x-auto scrollbar-hide">
+              {TABS.map((tab) => {
+                const isActive = activeTab === tab.id;
+                return (
+                  <button
+                    type="button"
+                    key={tab.id}
+                    onClick={() => setActiveTab(tab.id)}
+                    className={`flex items-center gap-1.5 px-4 py-3 text-sm font-body font-medium whitespace-nowrap transition-colors border-b-2 -mb-px focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
+                      isActive
+                        ? "border-teal text-foreground"
+                        : "border-transparent text-muted-foreground hover:text-foreground hover:border-border"
+                    }`}
+                  >
+                    {tab.icon}
+                    <span className="hidden sm:inline">{tab.label}</span>
+                    <span className="sm:hidden text-xs">
+                      {tab.label.split(" ")[0]}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        </nav>
 
-      {/* Footer */}
-      <footer className="border-t border-border bg-card py-4">
-        <div className="max-w-5xl mx-auto px-4 text-center">
-          <p className="text-xs text-muted-foreground font-body">
-            © {new Date().getFullYear()}.{" "}
-            <a
-              href={`https://caffeine.ai?utm_source=caffeine-footer&utm_medium=referral&utm_content=${encodeURIComponent(window.location.hostname)}`}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="hover:text-teal transition-colors"
-            >
-              Built with ♥ using caffeine.ai
-            </a>
-          </p>
-        </div>
-      </footer>
-    </div>
+        {/* Main Content */}
+        <main className="flex-1">
+          <div className="max-w-5xl mx-auto px-4 py-6">
+            {isLoadingData ? (
+              <DashboardSkeleton />
+            ) : (
+              <AnimatePresence mode="wait">
+                {activeTab === "dashboard" && (
+                  <motion.div key="dashboard">
+                    <DashboardTab
+                      expenses={expenses}
+                      currency={currency}
+                      onReset={() => resetMutation.mutate()}
+                      isResetting={resetMutation.isPending}
+                    />
+                  </motion.div>
+                )}
+                {activeTab === "add" && (
+                  <motion.div key="add">
+                    <AddExpenseTab
+                      onAdd={(date, description, location, amount, paidBy) =>
+                        addMutation
+                          .mutateAsync({
+                            date,
+                            description,
+                            location,
+                            amount,
+                            paidBy,
+                          })
+                          .then(() => {})
+                      }
+                      currency={currency}
+                      isAdding={addMutation.isPending}
+                    />
+                  </motion.div>
+                )}
+                {activeTab === "list" && (
+                  <motion.div key="list">
+                    <ExpenseListTab expenses={expenses} currency={currency} />
+                  </motion.div>
+                )}
+                {activeTab === "settlements" && (
+                  <motion.div key="settlements">
+                    <SettlementsTab
+                      expenses={expenses}
+                      currency={currency}
+                      onReset={() => resetMutation.mutate()}
+                      isResetting={resetMutation.isPending}
+                    />
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            )}
+          </div>
+        </main>
+
+        {/* Footer */}
+        <footer className="border-t border-border bg-card py-4">
+          <div className="max-w-5xl mx-auto px-4 text-center">
+            <p className="text-xs text-muted-foreground font-body">
+              © {new Date().getFullYear()}.{" "}
+              <a
+                href={`https://caffeine.ai?utm_source=caffeine-footer&utm_medium=referral&utm_content=${encodeURIComponent(window.location.hostname)}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="hover:text-teal transition-colors"
+              >
+                Built with ♥ using caffeine.ai
+              </a>
+            </p>
+          </div>
+        </footer>
+      </div>
+    </TripContext.Provider>
   );
 }
