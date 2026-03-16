@@ -89,6 +89,7 @@ export class ExternalBlob {
         return this;
     }
 }
+export type List = Array<string>;
 export interface _CaffeineStorageRefillInformation {
     proposed_top_up_amount?: bigint;
 }
@@ -96,22 +97,13 @@ export interface _CaffeineStorageCreateCertificateResult {
     method: string;
     blob_hash: string;
 }
-export interface ItineraryEntry {
-    id: string;
-    photoUrls: Array<string>;
-    hotelName: string;
-    date: string;
-    time: string;
-    details: string;
-    hotelLocation: string;
-    activity: string;
-}
 export interface Expense {
     id: bigint;
     date: string;
     description: string;
+    currency: string;
+    place: string;
     amount: number;
-    location: string;
     paidBy: string;
 }
 export interface UserProfile {
@@ -134,19 +126,20 @@ export interface backendInterface {
     _caffeineStorageRefillCashier(refillInformation: _CaffeineStorageRefillInformation | null): Promise<_CaffeineStorageRefillResult>;
     _caffeineStorageUpdateGatewayPrincipals(): Promise<void>;
     _initializeAccessControlWithSecret(userSecret: string): Promise<void>;
-    addExpense(date: string, description: string, location: string, amount: number, paidBy: string): Promise<bigint>;
-    addItineraryEntry(id: string, date: string, activity: string, time: string, hotelName: string, hotelLocation: string, details: string, photoUrls: Array<string>): Promise<void>;
+    addExpense(tripCode: string, description: string, amount: number, paidBy: string, date: string, place: string, currency: string): Promise<bigint>;
     assignCallerUserRole(user: Principal, role: UserRole): Promise<void>;
-    deleteItineraryEntry(id: string): Promise<void>;
+    deleteExpense(tripCode: string, id: bigint): Promise<boolean>;
     getCallerUserProfile(): Promise<UserProfile | null>;
     getCallerUserRole(): Promise<UserRole>;
-    getExpenses(): Promise<Array<Expense>>;
-    getItineraryEntries(): Promise<Array<ItineraryEntry>>;
+    getExpenses(tripCode: string): Promise<Array<Expense>>;
+    getMembers(tripCode: string): Promise<List>;
+    getPlaces(tripCode: string): Promise<List>;
     getUserProfile(user: Principal): Promise<UserProfile | null>;
     isCallerAdmin(): Promise<boolean>;
-    resetExpenses(): Promise<void>;
+    resetExpenses(tripCode: string): Promise<void>;
     saveCallerUserProfile(profile: UserProfile): Promise<void>;
-    updateItineraryEntry(id: string, date: string, activity: string, time: string, hotelName: string, hotelLocation: string, details: string, photoUrls: Array<string>): Promise<void>;
+    setMembers(tripCode: string, members: List): Promise<void>;
+    setPlaces(tripCode: string, places: List): Promise<void>;
 }
 import type { UserProfile as _UserProfile, UserRole as _UserRole, _CaffeineStorageRefillInformation as __CaffeineStorageRefillInformation, _CaffeineStorageRefillResult as __CaffeineStorageRefillResult } from "./declarations/backend.did.d.ts";
 export class Backend implements backendInterface {
@@ -249,31 +242,17 @@ export class Backend implements backendInterface {
             return result;
         }
     }
-    async addExpense(arg0: string, arg1: string, arg2: string, arg3: number, arg4: string): Promise<bigint> {
+    async addExpense(arg0: string, arg1: string, arg2: number, arg3: string, arg4: string, arg5: string, arg6: string): Promise<bigint> {
         if (this.processError) {
             try {
-                const result = await this.actor.addExpense(arg0, arg1, arg2, arg3, arg4);
+                const result = await this.actor.addExpense(arg0, arg1, arg2, arg3, arg4, arg5, arg6);
                 return result;
             } catch (e) {
                 this.processError(e);
                 throw new Error("unreachable");
             }
         } else {
-            const result = await this.actor.addExpense(arg0, arg1, arg2, arg3, arg4);
-            return result;
-        }
-    }
-    async addItineraryEntry(arg0: string, arg1: string, arg2: string, arg3: string, arg4: string, arg5: string, arg6: string, arg7: Array<string>): Promise<void> {
-        if (this.processError) {
-            try {
-                const result = await this.actor.addItineraryEntry(arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7);
-                return result;
-            } catch (e) {
-                this.processError(e);
-                throw new Error("unreachable");
-            }
-        } else {
-            const result = await this.actor.addItineraryEntry(arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7);
+            const result = await this.actor.addExpense(arg0, arg1, arg2, arg3, arg4, arg5, arg6);
             return result;
         }
     }
@@ -291,17 +270,17 @@ export class Backend implements backendInterface {
             return result;
         }
     }
-    async deleteItineraryEntry(arg0: string): Promise<void> {
+    async deleteExpense(arg0: string, arg1: bigint): Promise<boolean> {
         if (this.processError) {
             try {
-                const result = await this.actor.deleteItineraryEntry(arg0);
+                const result = await this.actor.deleteExpense(arg0, arg1);
                 return result;
             } catch (e) {
                 this.processError(e);
                 throw new Error("unreachable");
             }
         } else {
-            const result = await this.actor.deleteItineraryEntry(arg0);
+            const result = await this.actor.deleteExpense(arg0, arg1);
             return result;
         }
     }
@@ -333,31 +312,45 @@ export class Backend implements backendInterface {
             return from_candid_UserRole_n11(this._uploadFile, this._downloadFile, result);
         }
     }
-    async getExpenses(): Promise<Array<Expense>> {
+    async getExpenses(arg0: string): Promise<Array<Expense>> {
         if (this.processError) {
             try {
-                const result = await this.actor.getExpenses();
+                const result = await this.actor.getExpenses(arg0);
                 return result;
             } catch (e) {
                 this.processError(e);
                 throw new Error("unreachable");
             }
         } else {
-            const result = await this.actor.getExpenses();
+            const result = await this.actor.getExpenses(arg0);
             return result;
         }
     }
-    async getItineraryEntries(): Promise<Array<ItineraryEntry>> {
+    async getMembers(arg0: string): Promise<List> {
         if (this.processError) {
             try {
-                const result = await this.actor.getItineraryEntries();
+                const result = await this.actor.getMembers(arg0);
                 return result;
             } catch (e) {
                 this.processError(e);
                 throw new Error("unreachable");
             }
         } else {
-            const result = await this.actor.getItineraryEntries();
+            const result = await this.actor.getMembers(arg0);
+            return result;
+        }
+    }
+    async getPlaces(arg0: string): Promise<List> {
+        if (this.processError) {
+            try {
+                const result = await this.actor.getPlaces(arg0);
+                return result;
+            } catch (e) {
+                this.processError(e);
+                throw new Error("unreachable");
+            }
+        } else {
+            const result = await this.actor.getPlaces(arg0);
             return result;
         }
     }
@@ -389,17 +382,17 @@ export class Backend implements backendInterface {
             return result;
         }
     }
-    async resetExpenses(): Promise<void> {
+    async resetExpenses(arg0: string): Promise<void> {
         if (this.processError) {
             try {
-                const result = await this.actor.resetExpenses();
+                const result = await this.actor.resetExpenses(arg0);
                 return result;
             } catch (e) {
                 this.processError(e);
                 throw new Error("unreachable");
             }
         } else {
-            const result = await this.actor.resetExpenses();
+            const result = await this.actor.resetExpenses(arg0);
             return result;
         }
     }
@@ -417,17 +410,31 @@ export class Backend implements backendInterface {
             return result;
         }
     }
-    async updateItineraryEntry(arg0: string, arg1: string, arg2: string, arg3: string, arg4: string, arg5: string, arg6: string, arg7: Array<string>): Promise<void> {
+    async setMembers(arg0: string, arg1: List): Promise<void> {
         if (this.processError) {
             try {
-                const result = await this.actor.updateItineraryEntry(arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7);
+                const result = await this.actor.setMembers(arg0, arg1);
                 return result;
             } catch (e) {
                 this.processError(e);
                 throw new Error("unreachable");
             }
         } else {
-            const result = await this.actor.updateItineraryEntry(arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7);
+            const result = await this.actor.setMembers(arg0, arg1);
+            return result;
+        }
+    }
+    async setPlaces(arg0: string, arg1: List): Promise<void> {
+        if (this.processError) {
+            try {
+                const result = await this.actor.setPlaces(arg0, arg1);
+                return result;
+            } catch (e) {
+                this.processError(e);
+                throw new Error("unreachable");
+            }
+        } else {
+            const result = await this.actor.setPlaces(arg0, arg1);
             return result;
         }
     }

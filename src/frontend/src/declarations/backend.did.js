@@ -29,20 +29,12 @@ export const Expense = IDL.Record({
   'id' : IDL.Nat,
   'date' : IDL.Text,
   'description' : IDL.Text,
+  'currency' : IDL.Text,
+  'place' : IDL.Text,
   'amount' : IDL.Float64,
-  'location' : IDL.Text,
   'paidBy' : IDL.Text,
 });
-export const ItineraryEntry = IDL.Record({
-  'id' : IDL.Text,
-  'photoUrls' : IDL.Vec(IDL.Text),
-  'hotelName' : IDL.Text,
-  'date' : IDL.Text,
-  'time' : IDL.Text,
-  'details' : IDL.Text,
-  'hotelLocation' : IDL.Text,
-  'activity' : IDL.Text,
-});
+export const List = IDL.Vec(IDL.Text);
 
 export const idlService = IDL.Service({
   '_caffeineStorageBlobIsLive' : IDL.Func(
@@ -73,52 +65,27 @@ export const idlService = IDL.Service({
   '_caffeineStorageUpdateGatewayPrincipals' : IDL.Func([], [], []),
   '_initializeAccessControlWithSecret' : IDL.Func([IDL.Text], [], []),
   'addExpense' : IDL.Func(
-      [IDL.Text, IDL.Text, IDL.Text, IDL.Float64, IDL.Text],
+      [IDL.Text, IDL.Text, IDL.Float64, IDL.Text, IDL.Text, IDL.Text, IDL.Text],
       [IDL.Nat],
       [],
     ),
-  'addItineraryEntry' : IDL.Func(
-      [
-        IDL.Text,
-        IDL.Text,
-        IDL.Text,
-        IDL.Text,
-        IDL.Text,
-        IDL.Text,
-        IDL.Text,
-        IDL.Vec(IDL.Text),
-      ],
-      [],
-      [],
-    ),
   'assignCallerUserRole' : IDL.Func([IDL.Principal, UserRole], [], []),
-  'deleteItineraryEntry' : IDL.Func([IDL.Text], [], []),
+  'deleteExpense' : IDL.Func([IDL.Text, IDL.Nat], [IDL.Bool], []),
   'getCallerUserProfile' : IDL.Func([], [IDL.Opt(UserProfile)], ['query']),
   'getCallerUserRole' : IDL.Func([], [UserRole], ['query']),
-  'getExpenses' : IDL.Func([], [IDL.Vec(Expense)], ['query']),
-  'getItineraryEntries' : IDL.Func([], [IDL.Vec(ItineraryEntry)], ['query']),
+  'getExpenses' : IDL.Func([IDL.Text], [IDL.Vec(Expense)], ['query']),
+  'getMembers' : IDL.Func([IDL.Text], [List], ['query']),
+  'getPlaces' : IDL.Func([IDL.Text], [List], ['query']),
   'getUserProfile' : IDL.Func(
       [IDL.Principal],
       [IDL.Opt(UserProfile)],
       ['query'],
     ),
   'isCallerAdmin' : IDL.Func([], [IDL.Bool], ['query']),
-  'resetExpenses' : IDL.Func([], [], []),
+  'resetExpenses' : IDL.Func([IDL.Text], [], []),
   'saveCallerUserProfile' : IDL.Func([UserProfile], [], []),
-  'updateItineraryEntry' : IDL.Func(
-      [
-        IDL.Text,
-        IDL.Text,
-        IDL.Text,
-        IDL.Text,
-        IDL.Text,
-        IDL.Text,
-        IDL.Text,
-        IDL.Vec(IDL.Text),
-      ],
-      [],
-      [],
-    ),
+  'setMembers' : IDL.Func([IDL.Text, List], [], []),
+  'setPlaces' : IDL.Func([IDL.Text, List], [], []),
 });
 
 export const idlInitArgs = [];
@@ -145,20 +112,12 @@ export const idlFactory = ({ IDL }) => {
     'id' : IDL.Nat,
     'date' : IDL.Text,
     'description' : IDL.Text,
+    'currency' : IDL.Text,
+    'place' : IDL.Text,
     'amount' : IDL.Float64,
-    'location' : IDL.Text,
     'paidBy' : IDL.Text,
   });
-  const ItineraryEntry = IDL.Record({
-    'id' : IDL.Text,
-    'photoUrls' : IDL.Vec(IDL.Text),
-    'hotelName' : IDL.Text,
-    'date' : IDL.Text,
-    'time' : IDL.Text,
-    'details' : IDL.Text,
-    'hotelLocation' : IDL.Text,
-    'activity' : IDL.Text,
-  });
+  const List = IDL.Vec(IDL.Text);
   
   return IDL.Service({
     '_caffeineStorageBlobIsLive' : IDL.Func(
@@ -189,52 +148,35 @@ export const idlFactory = ({ IDL }) => {
     '_caffeineStorageUpdateGatewayPrincipals' : IDL.Func([], [], []),
     '_initializeAccessControlWithSecret' : IDL.Func([IDL.Text], [], []),
     'addExpense' : IDL.Func(
-        [IDL.Text, IDL.Text, IDL.Text, IDL.Float64, IDL.Text],
-        [IDL.Nat],
-        [],
-      ),
-    'addItineraryEntry' : IDL.Func(
         [
           IDL.Text,
           IDL.Text,
+          IDL.Float64,
           IDL.Text,
           IDL.Text,
           IDL.Text,
           IDL.Text,
-          IDL.Text,
-          IDL.Vec(IDL.Text),
         ],
-        [],
+        [IDL.Nat],
         [],
       ),
     'assignCallerUserRole' : IDL.Func([IDL.Principal, UserRole], [], []),
-    'deleteItineraryEntry' : IDL.Func([IDL.Text], [], []),
+    'deleteExpense' : IDL.Func([IDL.Text, IDL.Nat], [IDL.Bool], []),
     'getCallerUserProfile' : IDL.Func([], [IDL.Opt(UserProfile)], ['query']),
     'getCallerUserRole' : IDL.Func([], [UserRole], ['query']),
-    'getExpenses' : IDL.Func([], [IDL.Vec(Expense)], ['query']),
-    'getItineraryEntries' : IDL.Func([], [IDL.Vec(ItineraryEntry)], ['query']),
+    'getExpenses' : IDL.Func([IDL.Text], [IDL.Vec(Expense)], ['query']),
+    'getMembers' : IDL.Func([IDL.Text], [List], ['query']),
+    'getPlaces' : IDL.Func([IDL.Text], [List], ['query']),
     'getUserProfile' : IDL.Func(
         [IDL.Principal],
         [IDL.Opt(UserProfile)],
         ['query'],
       ),
     'isCallerAdmin' : IDL.Func([], [IDL.Bool], ['query']),
-    'resetExpenses' : IDL.Func([], [], []),
+    'resetExpenses' : IDL.Func([IDL.Text], [], []),
     'saveCallerUserProfile' : IDL.Func([UserProfile], [], []),
-    'updateItineraryEntry' : IDL.Func(
-        [
-          IDL.Text,
-          IDL.Text,
-          IDL.Text,
-          IDL.Text,
-          IDL.Text,
-          IDL.Text,
-          IDL.Text,
-          IDL.Vec(IDL.Text),
-        ],
-        [],
-        [],
-      ),
+    'setMembers' : IDL.Func([IDL.Text, List], [], []),
+    'setPlaces' : IDL.Func([IDL.Text, List], [], []),
   });
 };
 

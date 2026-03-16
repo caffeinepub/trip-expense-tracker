@@ -7,22 +7,14 @@ export interface None {
     __kind__: "None";
 }
 export type Option<T> = Some<T> | None;
-export interface ItineraryEntry {
-    id: string;
-    photoUrls: Array<string>;
-    hotelName: string;
-    date: string;
-    time: string;
-    details: string;
-    hotelLocation: string;
-    activity: string;
-}
+export type List = Array<string>;
 export interface Expense {
     id: bigint;
     date: string;
     description: string;
+    currency: string;
+    place: string;
     amount: number;
-    location: string;
     paidBy: string;
 }
 export interface UserProfile {
@@ -34,17 +26,18 @@ export enum UserRole {
     guest = "guest"
 }
 export interface backendInterface {
-    addExpense(date: string, description: string, location: string, amount: number, paidBy: string): Promise<bigint>;
-    addItineraryEntry(id: string, date: string, activity: string, time: string, hotelName: string, hotelLocation: string, details: string, photoUrls: Array<string>): Promise<void>;
+    addExpense(tripCode: string, description: string, amount: number, paidBy: string, date: string, place: string, currency: string): Promise<bigint>;
     assignCallerUserRole(user: Principal, role: UserRole): Promise<void>;
-    deleteItineraryEntry(id: string): Promise<void>;
+    deleteExpense(tripCode: string, id: bigint): Promise<boolean>;
     getCallerUserProfile(): Promise<UserProfile | null>;
     getCallerUserRole(): Promise<UserRole>;
-    getExpenses(): Promise<Array<Expense>>;
-    getItineraryEntries(): Promise<Array<ItineraryEntry>>;
+    getExpenses(tripCode: string): Promise<Array<Expense>>;
+    getMembers(tripCode: string): Promise<List>;
+    getPlaces(tripCode: string): Promise<List>;
     getUserProfile(user: Principal): Promise<UserProfile | null>;
     isCallerAdmin(): Promise<boolean>;
-    resetExpenses(): Promise<void>;
+    resetExpenses(tripCode: string): Promise<void>;
     saveCallerUserProfile(profile: UserProfile): Promise<void>;
-    updateItineraryEntry(id: string, date: string, activity: string, time: string, hotelName: string, hotelLocation: string, details: string, photoUrls: Array<string>): Promise<void>;
+    setMembers(tripCode: string, members: List): Promise<void>;
+    setPlaces(tripCode: string, places: List): Promise<void>;
 }

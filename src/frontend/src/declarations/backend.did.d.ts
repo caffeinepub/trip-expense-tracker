@@ -14,20 +14,12 @@ export interface Expense {
   'id' : bigint,
   'date' : string,
   'description' : string,
+  'currency' : string,
+  'place' : string,
   'amount' : number,
-  'location' : string,
   'paidBy' : string,
 }
-export interface ItineraryEntry {
-  'id' : string,
-  'photoUrls' : Array<string>,
-  'hotelName' : string,
-  'date' : string,
-  'time' : string,
-  'details' : string,
-  'hotelLocation' : string,
-  'activity' : string,
-}
+export type List = Array<string>;
 export interface UserProfile { 'name' : string }
 export type UserRole = { 'admin' : null } |
   { 'user' : null } |
@@ -60,25 +52,23 @@ export interface _SERVICE {
   >,
   '_caffeineStorageUpdateGatewayPrincipals' : ActorMethod<[], undefined>,
   '_initializeAccessControlWithSecret' : ActorMethod<[string], undefined>,
-  'addExpense' : ActorMethod<[string, string, string, number, string], bigint>,
-  'addItineraryEntry' : ActorMethod<
-    [string, string, string, string, string, string, string, Array<string>],
-    undefined
+  'addExpense' : ActorMethod<
+    [string, string, number, string, string, string, string],
+    bigint
   >,
   'assignCallerUserRole' : ActorMethod<[Principal, UserRole], undefined>,
-  'deleteItineraryEntry' : ActorMethod<[string], undefined>,
+  'deleteExpense' : ActorMethod<[string, bigint], boolean>,
   'getCallerUserProfile' : ActorMethod<[], [] | [UserProfile]>,
   'getCallerUserRole' : ActorMethod<[], UserRole>,
-  'getExpenses' : ActorMethod<[], Array<Expense>>,
-  'getItineraryEntries' : ActorMethod<[], Array<ItineraryEntry>>,
+  'getExpenses' : ActorMethod<[string], Array<Expense>>,
+  'getMembers' : ActorMethod<[string], List>,
+  'getPlaces' : ActorMethod<[string], List>,
   'getUserProfile' : ActorMethod<[Principal], [] | [UserProfile]>,
   'isCallerAdmin' : ActorMethod<[], boolean>,
-  'resetExpenses' : ActorMethod<[], undefined>,
+  'resetExpenses' : ActorMethod<[string], undefined>,
   'saveCallerUserProfile' : ActorMethod<[UserProfile], undefined>,
-  'updateItineraryEntry' : ActorMethod<
-    [string, string, string, string, string, string, string, Array<string>],
-    undefined
-  >,
+  'setMembers' : ActorMethod<[string, List], undefined>,
+  'setPlaces' : ActorMethod<[string, List], undefined>,
 }
 export declare const idlService: IDL.ServiceClass;
 export declare const idlInitArgs: IDL.Type[];

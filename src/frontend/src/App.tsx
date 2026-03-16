@@ -91,7 +91,6 @@ import { createPortal } from "react-dom";
 import { toast } from "sonner";
 import { exportToExcel, exportToPDF } from "./exportUtils";
 import { useActor } from "./hooks/useActor";
-import { useInternetIdentity } from "./hooks/useInternetIdentity";
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -1520,12 +1519,16 @@ function SettingsModal({
   initialMembers,
   initialPlaces,
   onSave,
+  tripCode,
+  onChangeTrip,
 }: {
   open: boolean;
   onClose: () => void;
   initialMembers: string[];
   initialPlaces: string[];
   onSave: (members: string[], places: string[]) => void;
+  tripCode: string;
+  onChangeTrip: () => void;
 }) {
   type EditItem = { id: number; value: string };
   const [editMembers, setEditMembers] = useState<EditItem[]>([]);
@@ -1575,6 +1578,38 @@ function SettingsModal({
         </DialogHeader>
 
         <div className="space-y-6 py-2">
+          {/* Trip Code Section */}
+          <div className="rounded-lg bg-muted/50 border border-border p-3 space-y-2">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-xs font-body text-muted-foreground uppercase tracking-wide">
+                  Current Trip Code
+                </p>
+                <p className="font-mono font-bold text-lg text-foreground tracking-widest mt-0.5">
+                  {tripCode}
+                </p>
+              </div>
+              <Button
+                variant="outline"
+                size="sm"
+                className="font-body text-xs border-destructive/40 text-destructive hover:bg-destructive hover:text-white"
+                onClick={() => {
+                  onClose();
+                  onChangeTrip();
+                }}
+                data-ocid="settings.change_trip.button"
+              >
+                <LogOut className="h-3.5 w-3.5 mr-1" />
+                Change Trip
+              </Button>
+            </div>
+            <p className="text-xs text-muted-foreground font-body">
+              Share this code with your group to sync expenses
+            </p>
+          </div>
+
+          <Separator />
+
           {/* Members Section */}
           <div>
             <h3 className="font-display font-semibold text-sm text-foreground mb-3 flex items-center gap-1.5">
@@ -1704,10 +1739,25 @@ function SettingsModal({
   );
 }
 
-// ── Login Screen ───────────────────────────────────────────────────────────────
+// ── Trip Code Screen ──────────────────────────────────────────────────────────
 
-function LoginScreen() {
-  const { login, isLoggingIn, isInitializing } = useInternetIdentity();
+function TripCodeScreen({ onEnter }: { onEnter: (code: string) => void }) {
+  const [code, setCode] = useState("");
+  const [error, setError] = useState("");
+
+  function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    const trimmed = code.trim().toUpperCase();
+    if (!trimmed) {
+      setError("Please enter a trip code");
+      return;
+    }
+    if (trimmed.length < 3) {
+      setError("Trip code must be at least 3 characters");
+      return;
+    }
+    onEnter(trimmed);
+  }
 
   return (
     <div className="min-h-screen bg-background flex flex-col items-center justify-center px-4">
@@ -1723,71 +1773,65 @@ function LoginScreen() {
             <Wallet className="h-8 w-8 text-white" />
           </div>
           <h1 className="font-display text-2xl font-bold text-foreground tracking-tight">
-            Trip Splitter
+            TRIP EXPENSES
           </h1>
           <p className="text-sm text-muted-foreground font-body mt-1">
-            Track & split trip expenses with friends
+            Track & split trip expenses with your group
           </p>
         </div>
 
-        {/* Login Card */}
+        {/* Trip Code Card */}
         <Card className="shadow-card-md">
           <CardContent className="p-6 space-y-5">
-            {/* Members preview */}
-            <div className="flex items-center justify-center gap-2">
-              {DEFAULT_MEMBERS.map((m) => (
-                <MemberAvatar key={m} member={m} size="md" />
-              ))}
+            <div className="text-center">
+              <div className="inline-flex h-10 w-10 rounded-full bg-teal/10 items-center justify-center mb-3">
+                <Shield className="h-5 w-5 text-teal" />
+              </div>
+              <h2 className="font-display font-semibold text-base text-foreground">
+                Enter Your Trip Code
+              </h2>
+              <p className="text-xs text-muted-foreground font-body mt-1">
+                Everyone with the same code shares expenses
+              </p>
             </div>
-            <p className="text-center text-xs text-muted-foreground font-body">
-              {DEFAULT_MEMBERS.join(" · ")}
-            </p>
 
-            <Separator />
-
-            {/* Benefits */}
-            <div className="space-y-2.5">
-              {[
-                {
-                  id: "secure",
-                  icon: <Shield className="h-4 w-4 text-teal" />,
-                  text: "Secure login with your Google or Apple account",
-                },
-                {
-                  id: "sync",
-                  icon: <ArrowRight className="h-4 w-4 text-teal" />,
-                  text: "Expenses sync automatically across all devices",
-                },
-                {
-                  id: "shared",
-                  icon: <CheckCircle2 className="h-4 w-4 text-teal" />,
-                  text: "One login, shared data for the whole group",
-                },
-              ].map((item) => (
-                <div key={item.id} className="flex items-start gap-2.5">
-                  <span className="mt-0.5 shrink-0">{item.icon}</span>
-                  <p className="text-xs text-foreground font-body">
-                    {item.text}
+            <form onSubmit={handleSubmit} className="space-y-3">
+              <div className="space-y-1.5">
+                <Input
+                  value={code}
+                  onChange={(e) => {
+                    setCode(e.target.value);
+                    setError("");
+                  }}
+                  placeholder="Enter Trip Code (e.g. THAILAND2026)"
+                  className="font-body text-sm h-11 text-center tracking-widest uppercase"
+                  autoComplete="off"
+                  autoCapitalize="characters"
+                  spellCheck={false}
+                  data-ocid="tripcode.input"
+                />
+                {error && (
+                  <p
+                    className="text-xs text-destructive font-body text-center"
+                    data-ocid="tripcode.error_state"
+                  >
+                    {error}
                   </p>
-                </div>
-              ))}
-            </div>
+                )}
+              </div>
 
-            <Button
-              onClick={login}
-              disabled={isLoggingIn || isInitializing}
-              className="w-full font-display font-semibold bg-navy hover:bg-navy-light text-white"
-            >
-              {isLoggingIn ? (
-                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-              ) : (
-                <LogIn className="h-4 w-4 mr-2" />
-              )}
-              {isLoggingIn ? "Connecting..." : "Login to Sync Data"}
-            </Button>
+              <Button
+                type="submit"
+                className="w-full font-display font-semibold bg-navy hover:bg-navy-light text-white h-11"
+                data-ocid="tripcode.submit_button"
+              >
+                <ArrowRight className="h-4 w-4 mr-2" />
+                Join Trip
+              </Button>
+            </form>
 
             <p className="text-center text-xs text-muted-foreground font-body">
-              Powered by Internet Identity · No passwords needed
+              💡 Share this code with your group to sync expenses
             </p>
           </CardContent>
         </Card>
@@ -1811,7 +1855,13 @@ function LoginScreen() {
 // ── App ────────────────────────────────────────────────────────────────────────
 
 export default function App() {
-  const { identity, clear, isInitializing } = useInternetIdentity();
+  const [tripCode, setTripCode] = useState<string>(() => {
+    try {
+      return localStorage.getItem("tripCode") || "";
+    } catch {
+      return "";
+    }
+  });
   const { actor, isFetching: isActorFetching } = useActor();
   const queryClient = useQueryClient();
   const [activeTab, setActiveTab] = useState<Tab>("dashboard");
@@ -1852,26 +1902,9 @@ export default function App() {
     toast.success("Settings saved!");
   }
 
-  // Registration promise -- kicked off once when actor is ready, awaited before every backend call
-  const registrationRef = useRef<Promise<void> | null>(null);
-
-  useEffect(() => {
-    if (!actor) {
-      registrationRef.current = null;
-      return;
-    }
-    registrationRef.current = (
-      actor as unknown as Record<string, (s: string) => Promise<void>>
-    )
-      ._initializeAccessControlWithSecret("")
-      .catch(() => {
-        // Ignore -- user may already be registered, or authorization not required
-      });
-  }, [actor]);
-
   // ── Fetch expenses from backend ────────────────────────────────────────────
   // ── Offline cache helpers ──────────────────────────────────────────────────
-  const CACHE_KEY = "trip_expenses_cache";
+  const CACHE_KEY = `trip_expenses_cache_${tripCode.toLowerCase()}`;
 
   function loadCachedExpenses() {
     try {
@@ -1889,20 +1922,19 @@ export default function App() {
   }
 
   const { data: rawExpenses, isLoading: isLoadingExpenses } = useQuery({
-    queryKey: ["expenses"],
+    queryKey: ["expenses", tripCode],
     queryFn: async () => {
       if (!actor) return [];
-      // Wait for registration to complete before fetching
-      if (registrationRef.current) await registrationRef.current;
-      const result = await actor.getExpenses();
+      const result = await actor.getExpenses(tripCode);
       saveCachedExpenses(result);
       return result;
     },
     enabled: !!actor && !isActorFetching,
     initialData: loadCachedExpenses,
-    staleTime: 30_000, // Consider data fresh for 30s — avoid redundant refetches
+    staleTime: 0,
     gcTime: 5 * 60_000, // Keep in memory for 5 minutes
-    refetchOnWindowFocus: false,
+    refetchOnWindowFocus: true,
+    refetchInterval: 10_000, // Poll every 10s for real-time sync
   });
 
   // Map backend Expense (bigint id) → local Expense (string id)
@@ -1910,7 +1942,7 @@ export default function App() {
     id: e.id.toString(),
     date: e.date,
     description: e.description,
-    location: e.location,
+    location: e.place,
     amount: e.amount,
     paidBy: e.paidBy as Member,
   }));
@@ -1931,9 +1963,15 @@ export default function App() {
       paidBy: Member;
     }) => {
       if (!actor) throw new Error("Not connected");
-      // Wait for registration before adding expense
-      if (registrationRef.current) await registrationRef.current;
-      return actor.addExpense(date, description, location, amount, paidBy);
+      return actor.addExpense(
+        tripCode,
+        description,
+        amount,
+        paidBy,
+        date,
+        location,
+        currency,
+      );
     },
     onSuccess: (_data, variables) => {
       queryClient.invalidateQueries({ queryKey: ["expenses"] });
@@ -1951,13 +1989,13 @@ export default function App() {
   const resetMutation = useMutation({
     mutationFn: async () => {
       if (!actor) throw new Error("Not connected");
-      // Wait for registration before resetting
-      if (registrationRef.current) await registrationRef.current;
-      return actor.resetExpenses();
+      return actor.resetExpenses(tripCode);
     },
     onSuccess: () => {
       try {
-        localStorage.removeItem("trip_expenses_cache");
+        localStorage.removeItem(
+          `trip_expenses_cache_${tripCode.toLowerCase()}`,
+        );
       } catch {}
       queryClient.invalidateQueries({ queryKey: ["expenses"] });
       toast.success("All expenses cleared. Starting fresh!");
@@ -1991,36 +2029,22 @@ export default function App() {
     }
   }
 
-  // ── Show loading during identity initialization ────────────────────────────
-  if (isInitializing) {
-    return (
-      <div className="min-h-screen bg-background flex items-center justify-center">
-        <div className="text-center space-y-3">
-          <div className="inline-flex h-12 w-12 rounded-xl bg-navy items-center justify-center">
-            <Wallet className="h-6 w-6 text-white" />
-          </div>
-          <div className="flex items-center gap-2 text-muted-foreground">
-            <Loader2 className="h-4 w-4 animate-spin" />
-            <span className="font-body text-sm">Loading...</span>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  // ── Show login if not authenticated ────────────────────────────────────────
-  if (!identity) {
+  // ── Show trip code entry if no code set ──────────────────────────────────
+  if (!tripCode) {
     return (
       <>
         <Toaster position="top-right" />
-        <LoginScreen />
+        <TripCodeScreen
+          onEnter={(code) => {
+            try {
+              localStorage.setItem("tripCode", code);
+            } catch {}
+            setTripCode(code);
+          }}
+        />
       </>
     );
   }
-
-  // ── Logged in principal short form ────────────────────────────────────────
-  const principalStr = identity.getPrincipal().toString();
-  const shortPrincipal = `${principalStr.slice(0, 5)}…${principalStr.slice(-3)}`;
 
   const isLoadingData = isActorFetching || isLoadingExpenses;
 
@@ -2035,6 +2059,13 @@ export default function App() {
           initialMembers={members}
           initialPlaces={places}
           onSave={handleSettingsSave}
+          tripCode={tripCode}
+          onChangeTrip={() => {
+            try {
+              localStorage.removeItem("tripCode");
+            } catch {}
+            setTripCode("");
+          }}
         />
 
         {/* App Header */}
@@ -2055,10 +2086,12 @@ export default function App() {
                 </div>
               </div>
               <div className="flex items-center gap-2">
-                {/* Synced indicator */}
+                {/* Trip code indicator */}
                 <div className="hidden sm:flex items-center gap-1 text-white/60 text-xs font-body">
                   <div className="h-1.5 w-1.5 rounded-full bg-teal animate-pulse" />
-                  <span className="hidden md:inline">{shortPrincipal}</span>
+                  <span className="hidden md:inline font-mono tracking-wider">
+                    {tripCode}
+                  </span>
                 </div>
 
                 <Select
@@ -2106,11 +2139,17 @@ export default function App() {
                   variant="ghost"
                   size="sm"
                   className="h-8 px-2 text-white/70 hover:bg-white/10 hover:text-white font-body text-xs gap-1"
-                  onClick={clear}
-                  title="Logout"
+                  onClick={() => {
+                    try {
+                      localStorage.removeItem("tripCode");
+                    } catch {}
+                    setTripCode("");
+                  }}
+                  title="Change Trip"
+                  data-ocid="header.change_trip.button"
                 >
                   <LogOut className="h-3.5 w-3.5" />
-                  <span className="hidden sm:inline">Logout</span>
+                  <span className="hidden sm:inline">Change Trip</span>
                 </Button>
 
                 <div className="hidden sm:flex items-center gap-1">
