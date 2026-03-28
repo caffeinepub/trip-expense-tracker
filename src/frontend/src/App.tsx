@@ -1,3 +1,13 @@
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -986,14 +996,176 @@ function AddExpenseTab({
   );
 }
 
+// ── Edit Expense Dialog ───────────────────────────────────────────────────────
+
+function EditExpenseDialog({
+  expense,
+  onClose,
+  onSave,
+  isSaving,
+}: {
+  expense: Expense | null;
+  onClose: () => void;
+  onSave: (data: {
+    id: string;
+    description: string;
+    location: string;
+    amount: number;
+    paidBy: Member;
+    date: string;
+  }) => void;
+  isSaving: boolean;
+}) {
+  const { members, places } = useTripContext();
+  const [description, setDescription] = useState("");
+  const [location, setLocation] = useState("");
+  const [amount, setAmount] = useState("");
+  const [paidBy, setPaidBy] = useState<Member>("");
+  const [date, setDate] = useState("");
+
+  // Sync form when expense changes
+  useEffect(() => {
+    if (expense) {
+      setDescription(expense.description || "");
+      setLocation(expense.location || "");
+      setAmount(String(expense.amount));
+      setPaidBy(expense.paidBy);
+      setDate(expense.date);
+    }
+  }, [expense]);
+
+  function handleSubmit(e: { preventDefault: () => void }) {
+    e.preventDefault();
+    if (!expense) return;
+    const parsedAmount = Number.parseFloat(amount);
+    if (!parsedAmount || parsedAmount <= 0) return;
+    onSave({
+      id: expense.id,
+      description,
+      location,
+      amount: parsedAmount,
+      paidBy,
+      date,
+    });
+  }
+
+  return (
+    <Dialog
+      open={!!expense}
+      onOpenChange={(open) => {
+        if (!open) onClose();
+      }}
+    >
+      <DialogContent className="max-w-md" data-ocid="expenses.dialog">
+        <DialogHeader>
+          <DialogTitle className="font-display">Edit Expense</DialogTitle>
+        </DialogHeader>
+        <form onSubmit={handleSubmit} className="space-y-4 pt-2">
+          <div className="space-y-1.5">
+            <Label className="font-body text-sm">Description</Label>
+            <Select value={description} onValueChange={setDescription}>
+              <SelectTrigger data-ocid="expenses.select">
+                <SelectValue placeholder="Select description" />
+              </SelectTrigger>
+              <SelectContent>
+                {DESCRIPTION_OPTIONS.map((opt) => (
+                  <SelectItem key={opt} value={opt}>
+                    {opt}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-1.5">
+            <Label className="font-body text-sm">Amount</Label>
+            <Input
+              type="number"
+              min="0.01"
+              step="0.01"
+              value={amount}
+              onChange={(e) => setAmount(e.target.value)}
+              required
+              data-ocid="expenses.input"
+            />
+          </div>
+          <div className="space-y-1.5">
+            <Label className="font-body text-sm">Paid By</Label>
+            <Select value={paidBy} onValueChange={setPaidBy}>
+              <SelectTrigger data-ocid="expenses.select">
+                <SelectValue placeholder="Select member" />
+              </SelectTrigger>
+              <SelectContent>
+                {members.map((m) => (
+                  <SelectItem key={m} value={m}>
+                    {m}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-1.5">
+            <Label className="font-body text-sm">Date</Label>
+            <Input
+              type="date"
+              value={date}
+              onChange={(e) => setDate(e.target.value)}
+              required
+              data-ocid="expenses.input"
+            />
+          </div>
+          <div className="space-y-1.5">
+            <Label className="font-body text-sm">Location</Label>
+            <Select value={location} onValueChange={setLocation}>
+              <SelectTrigger data-ocid="expenses.select">
+                <SelectValue placeholder="Select location" />
+              </SelectTrigger>
+              <SelectContent>
+                {places.map((p) => (
+                  <SelectItem key={p} value={p}>
+                    {p}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={onClose}
+              data-ocid="expenses.cancel_button"
+            >
+              Cancel
+            </Button>
+            <Button
+              type="submit"
+              disabled={isSaving}
+              data-ocid="expenses.save_button"
+            >
+              {isSaving ? (
+                <Loader2 className="h-4 w-4 animate-spin mr-2" />
+              ) : null}
+              Save Changes
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 // ── Expense List Tab ───────────────────────────────────────────────────────────
 
 function ExpenseListTab({
   expenses,
   currency,
+  onDelete,
+  onEdit,
 }: {
   expenses: Expense[];
   currency: Currency;
+  onDelete: (id: string) => void;
+  onEdit: (expense: Expense) => void;
 }) {
   const sorted = [...expenses].sort(
     (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime(),
@@ -1052,8 +1224,11 @@ function ExpenseListTab({
                     <TableHead className="font-display font-semibold text-xs uppercase tracking-wider text-muted-foreground">
                       Paid By
                     </TableHead>
-                    <TableHead className="font-display font-semibold text-xs uppercase tracking-wider text-muted-foreground text-right pr-5">
+                    <TableHead className="font-display font-semibold text-xs uppercase tracking-wider text-muted-foreground text-right">
                       Per Person
+                    </TableHead>
+                    <TableHead className="font-display font-semibold text-xs uppercase tracking-wider text-muted-foreground text-right pr-5">
+                      Actions
                     </TableHead>
                   </TableRow>
                 </TableHeader>
@@ -1088,13 +1263,35 @@ function ExpenseListTab({
                           </span>
                         </div>
                       </TableCell>
-                      <TableCell className="text-right pr-5">
+                      <TableCell className="text-right">
                         <span className="amount-neutral text-sm text-muted-foreground">
                           {formatCurrency(
                             expense.amount / (members.length || 1),
                             currency,
                           )}
                         </span>
+                      </TableCell>
+                      <TableCell className="text-right pr-5">
+                        <div className="flex items-center justify-end gap-1">
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-7 w-7 text-muted-foreground hover:text-foreground"
+                            onClick={() => onEdit(expense)}
+                            data-ocid="expenses.edit_button"
+                          >
+                            <Pencil className="h-3.5 w-3.5" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-7 w-7 text-muted-foreground hover:text-destructive"
+                            onClick={() => onDelete(expense.id)}
+                            data-ocid="expenses.delete_button"
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </Button>
+                        </div>
                       </TableCell>
                     </TableRow>
                   ))}
@@ -1112,11 +1309,12 @@ function ExpenseListTab({
                       </span>
                     </TableCell>
                     <TableCell />
-                    <TableCell className="text-right pr-5">
+                    <TableCell className="text-right">
                       <span className="amount-neutral font-display font-bold text-sm text-foreground">
                         {formatCurrency(perPersonTotal, currency)}
                       </span>
                     </TableCell>
+                    <TableCell />
                   </TableRow>
                 </TableBody>
               </Table>
@@ -1168,17 +1366,39 @@ function ExpenseListTab({
                         </span>
                       </div>
                     </div>
-                    <div className="text-right shrink-0">
-                      <p className="amount-neutral font-display font-bold text-base text-foreground">
-                        {formatCurrency(expense.amount, currency)}
-                      </p>
-                      <p className="text-xs text-muted-foreground font-body mt-0.5">
-                        {formatCurrency(
-                          expense.amount / (members.length || 1),
-                          currency,
-                        )}
-                        /person
-                      </p>
+                    <div className="flex items-start gap-1">
+                      <div className="text-right shrink-0">
+                        <p className="amount-neutral font-display font-bold text-base text-foreground">
+                          {formatCurrency(expense.amount, currency)}
+                        </p>
+                        <p className="text-xs text-muted-foreground font-body mt-0.5">
+                          {formatCurrency(
+                            expense.amount / (members.length || 1),
+                            currency,
+                          )}
+                          /person
+                        </p>
+                      </div>
+                      <div className="flex flex-col gap-0.5 ml-1">
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-6 w-6 text-muted-foreground hover:text-foreground"
+                          onClick={() => onEdit(expense)}
+                          data-ocid="expenses.edit_button"
+                        >
+                          <Pencil className="h-3 w-3" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-6 w-6 text-muted-foreground hover:text-destructive"
+                          onClick={() => onDelete(expense.id)}
+                          data-ocid="expenses.delete_button"
+                        >
+                          <Trash2 className="h-3 w-3" />
+                        </Button>
+                      </div>
                     </div>
                   </div>
                   <Separator className="my-2" />
@@ -1745,7 +1965,7 @@ function TripCodeScreen({ onEnter }: { onEnter: (code: string) => void }) {
   const [code, setCode] = useState("");
   const [error, setError] = useState("");
 
-  function handleSubmit(e: React.FormEvent) {
+  function handleSubmit(e: { preventDefault: () => void }) {
     e.preventDefault();
     const trimmed = code.trim().toUpperCase();
     if (!trimmed) {
@@ -1867,6 +2087,8 @@ export default function App() {
   const [activeTab, setActiveTab] = useState<Tab>("dashboard");
   const [currency, setCurrency] = useState<Currency>("INR");
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [editingExpense, setEditingExpense] = useState<Expense | null>(null);
+  const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
 
   // Dynamic members and places (localStorage-backed)
   const [members, setMembers] = useState<string[]>(() => {
@@ -2002,6 +2224,61 @@ export default function App() {
     },
     onError: () => {
       toast.error("Failed to reset expenses. Please try again.");
+    },
+  });
+
+  // ── Delete expense mutation ────────────────────────────────────────────────
+  const deleteMutation = useMutation({
+    mutationFn: async (id: string) => {
+      if (!actor) throw new Error("Not connected");
+      return actor.deleteExpense(tripCode, BigInt(id));
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["expenses"] });
+      setDeleteConfirmId(null);
+      toast.success("Expense deleted.");
+    },
+    onError: () => {
+      toast.error("Failed to delete expense.");
+    },
+  });
+
+  // ── Update expense mutation (delete + re-add) ───────────────────────────
+  const updateMutation = useMutation({
+    mutationFn: async ({
+      id,
+      description,
+      location,
+      amount,
+      paidBy,
+      date,
+    }: {
+      id: string;
+      description: string;
+      location: string;
+      amount: number;
+      paidBy: Member;
+      date: string;
+    }) => {
+      if (!actor) throw new Error("Not connected");
+      await actor.deleteExpense(tripCode, BigInt(id));
+      return actor.addExpense(
+        tripCode,
+        description,
+        amount,
+        paidBy,
+        date,
+        location,
+        currency,
+      );
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["expenses"] });
+      setEditingExpense(null);
+      toast.success("Expense updated.");
+    },
+    onError: () => {
+      toast.error("Failed to update expense.");
     },
   });
 
@@ -2229,7 +2506,12 @@ export default function App() {
                 )}
                 {activeTab === "list" && (
                   <motion.div key="list">
-                    <ExpenseListTab expenses={expenses} currency={currency} />
+                    <ExpenseListTab
+                      expenses={expenses}
+                      currency={currency}
+                      onDelete={(id) => setDeleteConfirmId(id)}
+                      onEdit={(expense) => setEditingExpense(expense)}
+                    />
                   </motion.div>
                 )}
                 {activeTab === "settlements" && (
@@ -2264,6 +2546,49 @@ export default function App() {
           </div>
         </footer>
       </div>
+
+      {/* ── Edit Expense Dialog ──────────────────────────────────────────── */}
+      <EditExpenseDialog
+        expense={editingExpense}
+        onClose={() => setEditingExpense(null)}
+        onSave={(data) => updateMutation.mutate(data)}
+        isSaving={updateMutation.isPending}
+      />
+
+      {/* ── Delete Confirmation ──────────────────────────────────────────── */}
+      <AlertDialog
+        open={!!deleteConfirmId}
+        onOpenChange={(open) => {
+          if (!open) setDeleteConfirmId(null);
+        }}
+      >
+        <AlertDialogContent data-ocid="expenses.dialog">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete this expense?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This cannot be undone. The expense will be permanently removed.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel data-ocid="expenses.cancel_button">
+              Cancel
+            </AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={() => {
+                if (deleteConfirmId) deleteMutation.mutate(deleteConfirmId);
+              }}
+              data-ocid="expenses.confirm_button"
+            >
+              {deleteMutation.isPending ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                "Delete"
+              )}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </TripContext.Provider>
   );
 }

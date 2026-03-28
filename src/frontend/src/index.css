@@ -1,0 +1,174 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Cabinet Grotesk — Display */
+@font-face {
+  font-family: "Cabinet Grotesk";
+  src: url("/assets/fonts/CabinetGrotesk-Variable.woff2") format("woff2");
+  font-weight: 100 900;
+  font-display: swap;
+}
+
+/* Satoshi — Body */
+@font-face {
+  font-family: "Satoshi";
+  src: url("/assets/fonts/Satoshi-Variable.woff2") format("woff2");
+  font-weight: 300 900;
+  font-display: swap;
+}
+
+/* Geist Mono — Numbers */
+@font-face {
+  font-family: "Geist Mono";
+  src: url("/assets/fonts/GeistMono-Variable.woff2") format("woff2");
+  font-weight: 100 900;
+  font-display: swap;
+}
+
+@layer base {
+  :root {
+    --radius: 0.5rem;
+
+    /* Navy-teal finance palette */
+    --background: 0.97 0.008 220;
+    --foreground: 0.18 0.04 250;
+    --card: 1 0 0;
+    --card-foreground: 0.18 0.04 250;
+    --popover: 1 0 0;
+    --popover-foreground: 0.18 0.04 250;
+
+    /* Primary: Deep Navy */
+    --primary: 0.25 0.07 255;
+    --primary-foreground: 0.98 0 0;
+
+    /* Secondary: Soft slate */
+    --secondary: 0.94 0.012 240;
+    --secondary-foreground: 0.25 0.07 255;
+
+    /* Muted */
+    --muted: 0.94 0.008 230;
+    --muted-foreground: 0.52 0.025 240;
+
+    /* Accent: Teal */
+    --accent: 0.92 0.04 195;
+    --accent-foreground: 0.22 0.06 215;
+
+    /* Destructive: Coral-red for negative balances */
+    --destructive: 0.58 0.22 25;
+    --destructive-foreground: 0.98 0 0;
+
+    /* Success: Rich teal-green */
+    --success: 0.52 0.16 160;
+    --success-foreground: 0.98 0 0;
+
+    /* Warning: Amber */
+    --warning: 0.72 0.18 60;
+    --warning-foreground: 0.12 0.03 50;
+
+    --border: 0.89 0.015 235;
+    --input: 0.89 0.015 235;
+    --ring: 0.45 0.15 255;
+
+    /* Custom: Teal accent for highlights */
+    --teal: 0.55 0.15 195;
+    --teal-light: 0.92 0.06 195;
+    --navy: 0.25 0.07 255;
+    --navy-light: 0.35 0.09 255;
+
+    --chart-1: 0.55 0.15 195;
+    --chart-2: 0.52 0.16 160;
+    --chart-3: 0.58 0.22 25;
+    --chart-4: 0.72 0.18 60;
+    --chart-5: 0.45 0.12 270;
+
+    --sidebar: 0.25 0.07 255;
+    --sidebar-foreground: 0.98 0 0;
+    --sidebar-primary: 0.55 0.15 195;
+    --sidebar-primary-foreground: 0.98 0 0;
+    --sidebar-accent: 0.35 0.09 255;
+    --sidebar-accent-foreground: 0.98 0 0;
+    --sidebar-border: 0.35 0.09 255;
+    --sidebar-ring: 0.55 0.15 195;
+  }
+
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground font-body;
+    font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+  }
+
+  /* Monospaced numbers for financial data */
+  .font-amount {
+    font-family: "Geist Mono", monospace;
+    font-variant-numeric: tabular-nums;
+  }
+}
+
+@layer utilities {
+  .text-success {
+    color: oklch(var(--success));
+  }
+  .bg-success {
+    background-color: oklch(var(--success));
+  }
+  .bg-success-light {
+    background-color: oklch(var(--success) / 0.1);
+  }
+  .text-success-foreground {
+    color: oklch(var(--success-foreground));
+  }
+  .border-success {
+    border-color: oklch(var(--success));
+  }
+
+  .text-warning {
+    color: oklch(var(--warning));
+  }
+  .bg-warning-light {
+    background-color: oklch(var(--warning) / 0.1);
+  }
+
+  .bg-teal {
+    background-color: oklch(var(--teal));
+  }
+  .text-teal {
+    color: oklch(var(--teal));
+  }
+  .bg-teal-light {
+    background-color: oklch(var(--teal-light));
+  }
+  .bg-navy {
+    background-color: oklch(var(--navy));
+  }
+  .text-navy {
+    color: oklch(var(--navy));
+  }
+
+  /* Ledger line pattern for table rows */
+  .ledger-row:nth-child(even) {
+    background-color: oklch(var(--muted) / 0.5);
+  }
+  .ledger-row:hover {
+    background-color: oklch(var(--accent));
+  }
+
+  /* Amount display */
+  .amount-positive {
+    color: oklch(var(--success));
+    font-family: "Geist Mono", monospace;
+    font-variant-numeric: tabular-nums;
+  }
+  .amount-negative {
+    color: oklch(var(--destructive));
+    font-family: "Geist Mono", monospace;
+    font-variant-numeric: tabular-nums;
+  }
+  .amount-neutral {
+    font-family: "Geist Mono", monospace;
+    font-variant-numeric: tabular-nums;
+  }
+}

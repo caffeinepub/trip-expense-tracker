@@ -94,6 +94,25 @@ actor {
     persistentExpenses.size() < originalLength;
   };
 
+  public shared ({ caller }) func updateExpense(tripCode : Text, id : Nat, description : Text, amount : Float, paidBy : Text, date : Text, place : Text, currency : Text) : async Bool {
+    if (not (AccessControl.hasPermission(accessControlState, caller, #guest))) {
+      Runtime.trap("Unauthorized: Only users can update expenses");
+    };
+
+    var found = false;
+    persistentExpenses := persistentExpenses.map(
+      func((tc, exp)) {
+        if (tc == tripCode.toUpper() and exp.id == id) {
+          found := true;
+          (tc, { id = id; description = description; amount = amount; paidBy = paidBy; date = date; place = place; currency = currency })
+        } else {
+          (tc, exp)
+        }
+      }
+    );
+    found;
+  };
+
   public shared ({ caller }) func resetExpenses(tripCode : Text) : async () {
     if (not (AccessControl.hasPermission(accessControlState, caller, #guest))) {
       Runtime.trap("Unauthorized: Only users can reset expenses");
